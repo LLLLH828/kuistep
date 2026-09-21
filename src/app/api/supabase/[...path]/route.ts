@@ -44,7 +44,46 @@ async function handler(req: Request) {
 
   // 临时诊断端点：/api/supabase/__diag?key=xxx
   if (subPath === "/__diag") {
-    return diag(req, url.searchParams.get("key") || "");
+    const p = url.searchParams;
+
+    // 回显模式：看请求到达处理器时的真实 URL 形状
+    if (p.get("echo")) {
+      return new Response(
+        JSON.stringify({ receivedUrl: req.url, pathname: url.pathname, search: url.search }, null, 2),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    // 重放模式：用与主转发完全相同的逻辑请求指定路径，可控增减头
+    const replayPath = p.get("path");
+    if (replayPath) {
+      const target = `https://${SUPABASE_HOST}${replayPath}`;
+      const headers = new Headers({ apikey: key, Authorization: `Bearer ${key}` });
+      const ua = p.get("ua");
+      if (ua) headers.set("user-agent", ua);
+      const ac = p.get("accept");
+      if (ac) headers.set("accept", ac);
+      const res = await fetch(target, { redirect: "manual", headers });
+      const text = await res.text();
+      return new Response(
+        JSON.stringify({ target, status: res.status, body: text.slice(0, 200) }, null, 2),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    return diag(req, key);
+  }
+
+  // 调试模式：?__debug=1 时回显处理器收到的 URL 与拼出的转发目标，不实际转发
+  if (url.searchParams.get("__debug")) {
+    return new Response(
+      JSON.stringify(
+        { receivedUrl: req.url, pathname: url.pathname, subPath, search: url.search },
+        null,
+        2
+      ),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
   }
 
   const target =
