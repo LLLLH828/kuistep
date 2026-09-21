@@ -22,7 +22,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
-    "@cloudflare/next-on-pages": "^1.12.1",
+    "@cloudflare/next-on-pages": "^1.13.16",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
