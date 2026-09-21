@@ -1,0 +1,27 @@
+name: Supabase Keepalive
+
+# 每天定时 ping 线上健康检查接口（内部会真实查询 Supabase），
+# 防止免费版因连续不活跃被暂停。
+on:
+  schedule:
+    - cron: "5 1 * * *" # UTC 01:05 = 北京时间 09:05（GitHub 可能有几分钟延迟）
+  workflow_dispatch: # 允许在 Actions 页面手动触发测试
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          for i in 1 2 3; do
+            response=$(curl -sf --max-time 30 https://kuistep-deploy.pages.dev/api/health || true)
+            echo "第 $i 次响应: $response"
+            if echo "$response" | grep -Eq '"ok"\s*:\s*true'; then
+              echo "✅ Supabase 连接正常，keepalive 成功"
+              exit 0
+            fi
+            echo "未通过，10 秒后重试..."
+            sleep 10
+          done
+          echo "❌ 三次重试均失败，请检查站点与 Supabase 状态"
+          exit 1
