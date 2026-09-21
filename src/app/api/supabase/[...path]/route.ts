@@ -45,6 +45,7 @@ async function handler(req: Request) {
   // 临时诊断端点：/api/supabase/__diag?key=xxx
   if (subPath === "/__diag") {
     const p = url.searchParams;
+    const key = p.get("key") || "";
 
     // 回显模式：看请求到达处理器时的真实 URL 形状
     if (p.get("echo")) {
