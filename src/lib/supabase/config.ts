@@ -8,6 +8,13 @@ export interface SupabaseConfig {
   serviceRoleKey?: string;
 }
 
+/**
+ * Supabase 直连主机（单一真相来源，反代路由与服务端共用）。
+ * 国内网络直连会被阻断——但这只影响浏览器；Cloudflare 边缘直连畅通。
+ * 因此服务端请求一律改写为直连，仅浏览器走 /api/supabase 反代。
+ */
+export const SUPABASE_DIRECT_HOST = "ibndcosctofschdxafkf.supabase.co";
+
 /** 浏览器端/服务端通用配置（公开变量）- 必须静态访问以便客户端内联 */
 export function getPublicConfig(): SupabaseConfig {
   return {

@@ -9,7 +9,7 @@
 //    原样转发会让 PostgREST 把它当过滤条件解析（PGRST100），必须剥离。
 export const runtime = "edge";
 
-const SUPABASE_HOST = "ibndcosctofschdxafkf.supabase.co";
+import { SUPABASE_DIRECT_HOST } from "@/lib/supabase/config";
 
 const PASS_REQUEST_HEADERS = new Set([
   "apikey",
@@ -56,7 +56,7 @@ async function handler(req: Request) {
   const url = new URL(req.url);
   const subPath = url.pathname.replace(/^\/api\/supabase/, "");
   const target =
-    `https://${SUPABASE_HOST}` + subPath + buildForwardSearch(url, subPath);
+    `https://${SUPABASE_DIRECT_HOST}` + subPath + buildForwardSearch(url, subPath);
 
   const res = await fetch(target, {
     method: req.method,

@@ -50,19 +50,26 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     }
 
     // 获取当前用户的家庭
-    const { data: members } = await supabase
+    const { data: members, error: membersError } = await supabase
       .from("family_members")
       .select(`*, family:families(*)`)
       .eq("user_id", user.id)
       .single();
 
     if (!members) {
+      // 不吞错误：打到日志并显示在页面上，便于排查
+      console.error("[parent] family_members 查询失败:", membersError);
       return (
         <main className="min-h-screen flex items-center justify-center p-6">
           <div className="text-center">
             <div className="text-4xl mb-2">🏠</div>
             <p className="text-gray-500">找不到你的家庭信息</p>
             <p className="text-gray-400 text-sm mt-2">这可能是因为数据库还没有初始化，请先在 Supabase SQL Editor 执行 schema.sql</p>
+            {membersError && (
+              <p className="text-red-400 text-xs mt-3 break-all max-w-md">
+                调试信息: {membersError.message}
+              </p>
+            )}
           </div>
         </main>
       );
