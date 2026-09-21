@@ -40,9 +40,16 @@ function buildHeaders(reqHeaders: Headers, whitelist: Set<string>) {
 
 async function handler(req: Request) {
   const url = new URL(req.url);
+  const subPath = url.pathname.replace(/^\/api\/supabase/, "");
+
+  // 临时诊断端点：/api/supabase/__diag?key=xxx
+  if (subPath === "/__diag") {
+    return diag(req, url.searchParams.get("key") || "");
+  }
+
   const target =
     `https://${SUPABASE_HOST}` +
-    url.pathname.replace(/^\/api\/supabase/, "") +
+    subPath +
     url.search;
 
   const res = await fetch(target, {
@@ -65,3 +72,42 @@ export const PATCH = handler;
 export const DELETE = handler;
 export const HEAD = handler;
 export const OPTIONS = handler;
+
+// 临时诊断端点：/api/supabase/__diag?key=xxx
+// 观察 Supabase 网关对不同请求形态的真实响应，定位 REST 路径被解析成 query 的原因
+async function diag(_req: Request, key: string) {
+  if (!key) return new Response("missing key", { status: 400 });
+  const authHeaders = { apikey: key, Authorization: `Bearer ${key}` };
+  const H = `https://${SUPABASE_HOST}`;
+  const results: Record<string, unknown> = {};
+
+  const cases: Array<[string, string, RequestInit]> = [
+    ["rest_manual", `${H}/rest/v1/families`, { redirect: "manual" }],
+    ["rest_follow", `${H}/rest/v1/families`, { redirect: "follow" }],
+    ["rest_query", `${H}/rest/v1/families?select=id`, { redirect: "manual" }],
+    ["rest_root", `${H}/rest/v1/`, { redirect: "manual" }],
+    ["rest_noslash", `${H}/rest/v1`, { redirect: "manual" }],
+    ["auth_get", `${H}/auth/v1/settings`, { redirect: "manual" }],
+  ];
+
+  for (const [name, target, init] of cases) {
+    try {
+      const res = await fetch(target, { ...init, headers: authHeaders });
+      const text = await res.text();
+      results[name] = {
+        requested: target,
+        finalUrl: res.url,
+        status: res.status,
+        location: res.headers.get("location"),
+        body: text.slice(0, 220),
+      };
+    } catch (e) {
+      results[name] = { requested: target, error: String(e) };
+    }
+  }
+
+  return new Response(JSON.stringify(results, null, 2), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
