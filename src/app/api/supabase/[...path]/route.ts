@@ -38,9 +38,23 @@ function buildHeaders(reqHeaders: Headers, whitelist: Set<string>) {
   return headers;
 }
 
+function buildForwardSearch(url: URL, subPath: string) {
+  const sp = new URLSearchParams(url.search);
+  const appended = sp.get("path");
+  if (appended !== null && appended === subPath.replace(/^\//, "")) {
+    sp.delete("path");
+  }
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
 async function handler(req: Request) {
   const url = new URL(req.url);
   const subPath = url.pathname.replace(/^\/api\/supabase/, "");
+
+  // 托管层（next-on-pages 路由）会把子路径以 ?path=... 重复附加到 query，
+  // 原样转发会让 Supabase 把它当过滤条件解析（PGRST100），必须剥掉
+  const forwardSearch = buildForwardSearch(url, subPath);
 
   // 临时诊断端点：/api/supabase/__diag?key=xxx
   if (subPath === "/__diag") {
@@ -90,7 +104,7 @@ async function handler(req: Request) {
   const target =
     `https://${SUPABASE_HOST}` +
     subPath +
-    url.search;
+    forwardSearch;
 
   const res = await fetch(target, {
     method: req.method,
