@@ -55,6 +55,7 @@ export interface RewardTemplate {
   is_decrease: boolean;
   is_active: boolean;
   sort_order: number;
+  category?: string;
 }
 
 export interface RewardItem {

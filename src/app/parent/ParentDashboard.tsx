@@ -1100,7 +1100,7 @@ function TemplateEditModal({
     setEditingId(t.id);
     setEditName(t.item_name);
     setEditPoints(t.points);
-    setEditCategory(t.category);
+    setEditCategory(t.category || "其他");
     setEditDimension(t.dimension);
     setEditIsDecrease(t.is_decrease);
   };
