@@ -13,6 +13,8 @@ import type {
 } from "@/types";
 
 export default async function ParentPage() {
+  const t0 = Date.now();
+
   // 检查 Supabase 是否配置好
   const { ok, missing } = validateConfig();
   if (!ok) {
@@ -40,6 +42,8 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
   const supabase = createClient();
 
   try {
+    const t1 = Date.now();
+
     // 用 getSession() 读本地 cookie JWT —— 零网络 RTT（middleware 已用 getUser() 兜底校验过）
     const { data: { session } } = await supabase.auth.getSession();
     const user = session?.user;
@@ -50,6 +54,8 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
         </main>
       );
     }
+
+    const t2 = Date.now();
 
     // 查出当前用户的 parent 行拿 family_id（唯一的串行依赖，后续全部并行）
     const { data: members } = await supabase
@@ -71,6 +77,7 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     }
 
     const familyId = members.family_id;
+    const t3 = Date.now();
 
     // 第一次并行：children / tasks / templates —— 都只需要 family_id
     const [
@@ -98,6 +105,7 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
         .order("sort_order"),
     ]);
 
+    const t4 = Date.now();
     const childIds = (children || []).map((c) => c.id);
 
     // 第二次并行：accounts / transactions —— 需要 childIds（从 children 结果来）
@@ -116,6 +124,8 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
         .order("created_at", { ascending: false })
         .limit(200),
     ]);
+
+    const t5 = Date.now();
 
     const accountMap = new Map();
     (accounts || []).forEach((a: any) => accountMap.set(a.child_member_id, a));
@@ -137,8 +147,15 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
       });
     }
 
+    const t6 = Date.now();
+    const timingStr = `getSession=${t2 - t1}ms,parent=${t3 - t2}ms,batch1=${t4 - t3}ms,batch2=${t5 - t4}ms,fill=${t6 - t5}ms,total=${t6 - t0}ms`;
+    console.log(`[SSR-timing] ${timingStr}`);
+
     return (
-      <ParentDashboard
+      <>
+        {/* 隐藏的 SSR 计时数据（DevTools Elements 面板可看到） */}
+        <div hidden data-ssr-timing={timingStr} data-ssr-total-ms={t6 - t0} />
+        <ParentDashboard
         familyId={familyId}
         kids={childrenWithAccount}
         tasks={(tasks || []) as Task[]}
@@ -147,6 +164,7 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
         currentUserId={members.id}
         userNickname={members.nickname || ""}
       />
+      </>
     );
   } catch (err: any) {
     return (
