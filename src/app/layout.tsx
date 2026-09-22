@@ -10,6 +10,13 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "跬步",
   },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
+      { url: "/icons/icon-512.svg", sizes: "512x512", type: "image/svg+xml" },
+    ],
+    apple: "/icons/icon-192.svg",
+  },
 };
 
 export const viewport: Viewport = {
@@ -19,6 +26,15 @@ export const viewport: Viewport = {
   themeColor: "#4F46E5",
 };
 
+// Service Worker 注册脚本（内联，避免额外请求）
+const swRegisterScript = `
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+`;
+
 export default function RootLayout({
   children,
 }: {
@@ -27,10 +43,17 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <head>
-        <link rel="icon" href="/favicon.ico" />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="icon" href="/favicon.svg" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="跬步" />
       </head>
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        {/* 注册 Service Worker */}
+        <script dangerouslySetInnerHTML={{ __html: swRegisterScript }} />
+      </body>
     </html>
   );
 }
