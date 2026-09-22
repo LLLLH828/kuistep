@@ -13,6 +13,7 @@ import type {
 } from "@/types";
 import { DIMENSION_LABELS } from "@/types";
 import Calendar from "@/components/Calendar";
+import TaskStats from "@/components/TaskStats";
 import CreateTaskModal from "./CreateTaskModal";
 
 interface Props {
@@ -419,6 +420,9 @@ function RewardTab({
       {/* ===== 奖励子 Tab ===== */}
       {subTab === "reward" && (
         <>
+          {/* 任务统计概览（本周完成率 + 本月得分 + 维度分布 + 近7天趋势） */}
+          <TaskStats tasks={tasks} txns={childTxns} childId={activeChildId ?? undefined} />
+
           {/* 日历（月/周/日/年视图 + 任务聚合） */}
           {activeChild && (
             <Calendar child={activeChild} txns={childTxns} tasks={tasks} onOpenDay={onOpenDay} />

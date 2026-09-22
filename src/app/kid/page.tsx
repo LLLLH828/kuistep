@@ -4,7 +4,7 @@ export const runtime = "edge";
 import { createClient } from "@/lib/supabase/server";
 import { validateConfig } from "@/lib/supabase/config";
 import KidHome from "./KidHome";
-import type { FamilyMember, RewardAccount, Task } from "@/types";
+import type { FamilyMember, RewardAccount, Task, RewardTransaction } from "@/types";
 
 export default async function KidPage() {
   const { ok, missing } = validateConfig();
@@ -24,7 +24,9 @@ export default async function KidPage() {
   const supabase = createClient();
 
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    // getSession() 读本地 cookie JWT —— 零网络 RTT（middleware 已用 getSession 本地解析）
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) {
       return (
         <main className="min-h-screen flex items-center justify-center p-6">
@@ -74,7 +76,7 @@ export default async function KidPage() {
       );
     }
 
-    // 孩子角色
+    // 孩子角色：account + tasks + transactions 并行查
     let { data: account } = await supabase
       .from("reward_accounts")
       .select("*")
@@ -102,19 +104,38 @@ export default async function KidPage() {
       );
     }
 
-    const { data: tasks } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("child_member_id", member.id)
-      .neq("status", "confirmed")
-      .order("due_date", { ascending: true, nullsFirst: true })
-      .order("created_at", { ascending: false });
+    // 并行查：任务（含全部状态，前端自己过滤）+ 流水 + 全部任务（含 confirmed，给日历用）
+    const [
+      { data: activeTasks },
+      { data: txns },
+      { data: allTasks },
+    ] = await Promise.all([
+      supabase
+        .from("tasks")
+        .select("*")
+        .eq("child_member_id", member.id)
+        .neq("status", "confirmed")
+        .order("due_date", { ascending: true, nullsFirst: true })
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("reward_transactions")
+        .select("*")
+        .eq("member_id", member.id)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("tasks")
+        .select("*")
+        .eq("child_member_id", member.id),
+    ]);
 
     return (
       <KidHome
         childMember={member as unknown as FamilyMember}
         account={account as RewardAccount}
-        tasks={(tasks || []) as Task[]}
+        tasks={(activeTasks || []) as Task[]}
+        allTasks={(allTasks || []) as Task[]}
+        txns={(txns || []) as RewardTransaction[]}
       />
     );
   } catch (err: any) {
