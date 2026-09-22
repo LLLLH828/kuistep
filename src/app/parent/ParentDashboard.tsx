@@ -12,6 +12,7 @@ import type {
   Dimension,
 } from "@/types";
 import { DIMENSION_LABELS } from "@/types";
+import Calendar from "@/components/Calendar";
 import CreateTaskModal from "./CreateTaskModal";
 
 interface Props {
@@ -355,50 +356,41 @@ function RewardTab({
 
   return (
     <div className="px-4 py-4 space-y-4">
-      {/* 家长信息 */}
-      <div className="text-sm text-gray-500">
-        👨‍👩‍👧 {userNickname}的家庭
+      {/* 顶部：家庭名 + 孩子切换 + 管理入口（同一行） */}
+      <div className="flex items-center gap-3">
+        <div className="flex-shrink-0 text-sm text-gray-500">
+          👨‍👩‍👧 {userNickname}的家庭
+        </div>
+        {kids.length > 0 ? (
+          <div className="flex-1 min-w-0 flex gap-2 overflow-x-auto pb-1 snap-x">
+            {kids.map((child) => (
+              <button
+                key={child.id}
+                onClick={() => setActiveChildId(child.id)}
+                className={`flex-shrink-0 snap-start px-4 py-2 rounded-xl text-sm font-medium transition ${
+                  activeChildId === child.id
+                    ? "bg-indigo-600 text-white shadow"
+                    : "bg-white text-gray-700 border border-gray-200"
+                }`}
+              >
+                {child.nickname || "孩子"}
+                {child.account && (
+                  <span className="ml-1 text-xs opacity-80">
+                    🌸{child.account.total_points}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex-1 text-center text-gray-400 text-sm py-2">暂无孩子</div>
+        )}
+        {/* 管理菜单 */}
+        <SettingsMenu
+          onAddChild={() => setShowAddChild(true)}
+          onEditTemplates={onOpenTemplateEdit}
+        />
       </div>
-
-      {/* 孩子切换（横向滑动） */}
-      {kids.length > 0 ? (
-        <div className="flex gap-2 overflow-x-auto pb-2 snap-x">
-          {kids.map((child) => (
-            <button
-              key={child.id}
-              onClick={() => setActiveChildId(child.id)}
-              className={`flex-shrink-0 snap-start px-4 py-2 rounded-xl text-sm font-medium transition ${
-                activeChildId === child.id
-                  ? "bg-indigo-600 text-white shadow"
-                  : "bg-white text-gray-700 border border-gray-200"
-              }`}
-            >
-              {child.nickname || "孩子"}
-              {child.account && (
-                <span className="ml-1 text-xs opacity-80">
-                  🌸{child.account.total_points}
-                </span>
-              )}
-            </button>
-          ))}
-          <button
-            onClick={() => setShowAddChild(true)}
-            className="flex-shrink-0 px-3 py-2 rounded-xl text-sm text-indigo-600 border border-dashed border-indigo-300 hover:bg-indigo-50"
-          >
-            + 添加
-          </button>
-        </div>
-      ) : (
-        <div className="card text-center py-8">
-          <p className="text-gray-500 mb-3">还没有添加孩子</p>
-          <button
-            onClick={() => setShowAddChild(true)}
-            className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-sm"
-          >
-            + 添加
-          </button>
-        </div>
-      )}
 
       {/* 子 Tab 切换：奖励 / 任务 */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
@@ -427,9 +419,9 @@ function RewardTab({
       {/* ===== 奖励子 Tab ===== */}
       {subTab === "reward" && (
         <>
-          {/* 月历计分图 */}
+          {/* 日历（月/周/日/年视图 + 任务聚合） */}
           {activeChild && (
-            <ScoreCalendar child={activeChild} txns={childTxns} onOpenDay={onOpenDay} />
+            <Calendar child={activeChild} txns={childTxns} tasks={tasks} onOpenDay={onOpenDay} />
           )}
 
           {/* 快速操作（横向滑动） */}
@@ -439,13 +431,6 @@ function RewardTab({
                 <h3 className="font-semibold text-gray-700 text-sm">
                   快速操作 · {activeChild.nickname}
                 </h3>
-                <button
-                  onClick={onOpenTemplateEdit}
-                  className="text-gray-300 hover:text-indigo-500 text-base px-1"
-                  title="编辑奖罚项"
-                >
-                  ⚙
-                </button>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1 snap-x">
                 {quickActions.map((a) => (
@@ -520,172 +505,56 @@ function RewardTab({
   );
 }
 
-/* ---------- 月历计分图 ---------- */
+/* ---------- 管理菜单 ---------- */
 
-function ScoreCalendar({
-  child,
-  txns,
-  onOpenDay,
+function SettingsMenu({
+  onAddChild,
+  onEditTemplates,
 }: {
-  child: FamilyMember & { account: RewardAccount | null };
-  txns: RewardTransaction[];
-  onOpenDay: (dayKey: string) => void;
+  onAddChild: () => void;
+  onEditTemplates: () => void;
 }) {
-  const total = child.account?.total_points ?? 0;
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
-
-  // 按日期聚合：当天净分、正分（用于小花数量）
-  // 用本地时区生成日期 key，避免 toISOString 的 UTC 错位（中国 UTC+8 晚 8 点后会差一天）
-  const dailyMap = useMemo(() => {
-    const toDayKey = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const map: Record<string, { net: number; pos: number; items: { reason: string; points: number; dim?: Dimension }[] }> = {};
-    txns.forEach((t) => {
-      const day = toDayKey(new Date(t.created_at));
-      if (!map[day]) map[day] = { net: 0, pos: 0, items: [] };
-      map[day].net += t.points;
-      if (t.points > 0) map[day].pos += t.points;
-      map[day].items.push({ reason: t.reason, points: t.points, dim: t.dimension });
-    });
-    return map;
-  }, [txns]);
-
-  // 构建当月网格（含前补齐）
-  const cells = useMemo(() => {
-    const year = cursor.getFullYear();
-    const month = cursor.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const startWeekday = firstDay.getDay(); // 0=周日
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const arr: (Date | null)[] = [];
-    for (let i = 0; i < startWeekday; i++) arr.push(null);
-    for (let d = 1; d <= daysInMonth; d++) arr.push(new Date(year, month, d));
-    return arr;
-  }, [cursor]);
-
-  // 当月合计
-  const monthSummary = useMemo(() => {
-    let pos = 0, neg = 0;
-    Object.entries(dailyMap).forEach(([day, v]) => {
-      const d = new Date(day);
-      if (d.getFullYear() === cursor.getFullYear() && d.getMonth() === cursor.getMonth()) {
-        if (v.net > 0) pos += v.net;
-        else neg += v.net;
-      }
-    });
-    return { pos, neg };
-  }, [dailyMap, cursor]);
-
-  const today = new Date();
-
-  const monthLabel = `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`;
-  const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-4">
-      {/* 顶部：总分 + 月份切换 */}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-2xl">🌸</span>
-            <span className="text-3xl font-bold text-indigo-600 tabular-nums">
-              {total}
-            </span>
-          </div>
-          <p className="text-[10px] text-gray-400 mt-0.5">
-            {child.nickname} 累计 {child.account?.lifetime_points ?? 0}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-            className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center hover:bg-gray-50"
-          >
-            ‹
-          </button>
-          <span className="text-sm font-semibold text-gray-700 w-20 text-center">
-            {monthLabel}
-          </span>
-          <button
-            onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-            className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center hover:bg-gray-50"
-          >
-            ›
-          </button>
-        </div>
-      </div>
-
-      {/* 当月正负汇总 */}
-      <div className="flex gap-3 text-xs mb-3">
-        <span className="text-green-600">本月 +{monthSummary.pos}</span>
-        <span className="text-red-500">{monthSummary.neg}</span>
-      </div>
-
-      {/* 星期表头 */}
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {weekdayLabels.map((w) => (
-          <div key={w} className="text-center text-[10px] text-gray-400 py-0.5">
-            {w}
-          </div>
-        ))}
-      </div>
-
-      {/* 日期网格 */}
-      <div className="grid grid-cols-7 gap-1">
-        {cells.map((date, i) => {
-          if (!date) return <div key={i} className="aspect-square" />;
-          const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-          const data = dailyMap[dayKey];
-          const isToday =
-            date.getDate() === today.getDate() &&
-            date.getMonth() === today.getMonth() &&
-            date.getFullYear() === today.getFullYear();
-
-          // 热力背景色（用字面量映射，避免 Tailwind purge 动态类）
-          let bg = "bg-gray-50";
-          let textColor = "text-gray-400";
-          if (data) {
-            if (data.net > 0) {
-              textColor = "text-green-700";
-              const abs = Math.min(Math.abs(data.net), 10);
-              bg = abs < 3 ? "bg-green-100" : abs < 6 ? "bg-green-200" : "bg-green-300";
-            } else if (data.net < 0) {
-              textColor = "text-red-600";
-              bg = "bg-red-100";
-            }
-          }
-
-          return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex-shrink-0 w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-500 hover:text-indigo-500 hover:border-indigo-300 flex items-center justify-center transition"
+        title="管理"
+      >
+        ⚙
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl border border-gray-100 shadow-lg z-50 overflow-hidden text-sm">
             <button
-              key={i}
-              onClick={() => onOpenDay(dayKey)}
-              className={`aspect-square rounded-lg ${bg} ${isToday ? "ring-2 ring-indigo-400" : ""} flex flex-col items-center justify-center p-0.5 relative ${data ? "cursor-pointer hover:ring-1 hover:ring-gray-300" : "cursor-pointer hover:bg-gray-100"}`}
+              onClick={() => { setOpen(false); onAddChild(); }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
             >
-              <span className={`text-[10px] leading-none ${textColor}`}>
-                {date.getDate()}
-              </span>
-              {data && (
-                <span className={`text-[9px] font-bold leading-none mt-0.5 ${textColor}`}>
-                  {data.net > 0 ? "+" : ""}{data.net}
-                </span>
-              )}
+              <span>👶</span> 添加孩子
             </button>
-          );
-        })}
-      </div>
-
-      {/* 图例 */}
-      <div className="flex items-center justify-end gap-2 mt-2 text-[9px] text-gray-400">
-        <span>少</span>
-        <span className="w-3 h-3 rounded bg-gray-50" />
-        <span className="w-3 h-3 rounded bg-green-100" />
-        <span className="w-3 h-3 rounded bg-green-200" />
-        <span className="w-3 h-3 rounded bg-green-300" />
-        <span>多</span>
-      </div>
+            <button
+              onClick={() => { setOpen(false); onEditTemplates(); }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <span>🌸</span> 奖罚项管理
+            </button>
+            <button
+              onClick={() => {
+                setOpen(false);
+                const supabase = createClient();
+                supabase.auth.signOut().then(() => router.push("/login"));
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-red-500"
+            >
+              <span>↪</span> 退出登录
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
