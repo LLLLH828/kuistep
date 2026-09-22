@@ -40,7 +40,9 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
   const supabase = createClient();
 
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    // 用 getSession() 读本地 cookie JWT —— 零网络 RTT（middleware 已用 getUser() 兜底校验过）
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) {
       return (
         <main className="min-h-screen flex items-center justify-center p-6">
@@ -49,27 +51,20 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
       );
     }
 
-    // 获取当前用户的家庭
-    const { data: members, error: membersError } = await supabase
+    // 查出当前用户的 parent 行拿 family_id（唯一的串行依赖，后续全部并行）
+    const { data: members } = await supabase
       .from("family_members")
       .select(`*, family:families(*)`)
       .eq("user_id", user.id)
       .single();
 
     if (!members) {
-      // 不吞错误：打到日志并显示在页面上，便于排查
-      console.error("[parent] family_members 查询失败:", membersError);
       return (
         <main className="min-h-screen flex items-center justify-center p-6">
           <div className="text-center">
             <div className="text-4xl mb-2">🏠</div>
             <p className="text-gray-500">找不到你的家庭信息</p>
             <p className="text-gray-400 text-sm mt-2">这可能是因为数据库还没有初始化，请先在 Supabase SQL Editor 执行 schema.sql</p>
-            {membersError && (
-              <p className="text-red-400 text-xs mt-3 break-all max-w-md">
-                调试信息: {membersError.message}
-              </p>
-            )}
           </div>
         </main>
       );
@@ -77,39 +72,24 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
 
     const familyId = members.family_id;
 
-    // 先查孩子（不要 reward_accounts join——RLS 下 join 可能过滤掉 account）
-    const { data: children } = await supabase
-      .from("family_members")
-      .select(`*`)
-      .eq("family_id", familyId)
-      .eq("role", "child")
-      .order("nickname");
-
-    const childIds = (children || []).map((c) => c.id);
-
-    // 并行查 reward_accounts / tasks / transactions / templates
+    // 第一次并行：children / tasks / templates —— 都只需要 family_id
     const [
-      { data: accounts },
+      { data: children },
       { data: tasks },
-      { data: transactions },
       { data: templates },
     ] = await Promise.all([
       supabase
-        .from("reward_accounts")
+        .from("family_members")
         .select(`*`)
-        .in("child_member_id", childIds.length ? childIds : ["00000000-0000-0000-0000-000000000000"]),
+        .eq("family_id", familyId)
+        .eq("role", "child")
+        .order("nickname"),
       supabase
         .from("tasks")
         .select(`*`)
         .eq("family_id", familyId)
         .order("created_at", { ascending: false })
         .limit(20),
-      supabase
-        .from("reward_transactions")
-        .select(`*`)
-        .in("member_id", childIds.length ? childIds : ["00000000-0000-0000-0000-000000000000"])
-        .order("created_at", { ascending: false })
-        .limit(200),
       supabase
         .from("reward_templates")
         .select(`*`)
@@ -118,7 +98,25 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
         .order("sort_order"),
     ]);
 
-    // 手动合并 account 到孩子
+    const childIds = (children || []).map((c) => c.id);
+
+    // 第二次并行：accounts / transactions —— 需要 childIds（从 children 结果来）
+    const [
+      { data: accounts },
+      { data: transactions },
+    ] = await Promise.all([
+      supabase
+        .from("reward_accounts")
+        .select(`*`)
+        .in("child_member_id", childIds.length ? childIds : ["00000000-0000-0000-0000-000000000000"]),
+      supabase
+        .from("reward_transactions")
+        .select(`*`)
+        .in("member_id", childIds.length ? childIds : ["00000000-0000-0000-0000-000000000000"])
+        .order("created_at", { ascending: false })
+        .limit(200),
+    ]);
+
     const accountMap = new Map();
     (accounts || []).forEach((a: any) => accountMap.set(a.child_member_id, a));
     const childrenWithAccount = (children || []).map((c: any) => ({
@@ -126,26 +124,18 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
       account: accountMap.get(c.id) || null,
     })) as (FamilyMember & { account: RewardAccount | null })[];
 
-    // 给没有账户的孩子创建（兜底，正常应由触发器处理），并回填 account 对象
-    for (const child of childrenWithAccount) {
-      if (!child.account) {
-        const { data: newAcc } = await supabase
-          .from("reward_accounts")
-          .insert({ child_member_id: child.id })
-          .select()
-          .single();
-        if (newAcc) {
-          child.account = newAcc as RewardAccount;
-        }
-      }
+    // 兜底：没有 reward_account 的孩子，并行创建（数据库触发器本该自动做，这里只是保险）
+    const missingChildren = childrenWithAccount.filter((c) => !c.account);
+    if (missingChildren.length > 0) {
+      const insResults = await Promise.all(
+        missingChildren.map((c) =>
+          supabase.from("reward_accounts").insert({ child_member_id: c.id }).select().single()
+        )
+      );
+      insResults.forEach((r, i) => {
+        if (r.data) missingChildren[i].account = r.data as RewardAccount;
+      });
     }
-
-    // 🐛 DEBUG
-    childrenWithAccount.forEach((c) => {
-      console.log(`[DEBUG] ${c.nickname}(id=${c.id}): account=${c.account ? "YES id="+c.account.id : "NULL!"}`);
-    });
-    const { data: rlsAccs } = await supabase.from("reward_accounts").select(`*`);
-    console.log(`[DEBUG] RLS reward_accounts rows: ${rlsAccs?.length ?? 0}`);
 
     return (
       <ParentDashboard
