@@ -152,10 +152,7 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     console.log(`[SSR-timing] ${timingStr}`);
 
     return (
-      <>
-        {/* 隐藏的 SSR 计时数据（DevTools Elements 面板可看到） */}
-        <div hidden data-ssr-timing={timingStr} data-ssr-total-ms={t6 - t0} />
-        <ParentDashboard
+      <ParentDashboard
         familyId={familyId}
         kids={childrenWithAccount}
         tasks={(tasks || []) as Task[]}
@@ -163,8 +160,9 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
         templates={(templates || []) as RewardTemplate[]}
         currentUserId={members.id}
         userNickname={members.nickname || ""}
+        ssrTiming={timingStr}
+        ssrTotalMs={t6 - t0}
       />
-      </>
     );
   } catch (err: any) {
     return (

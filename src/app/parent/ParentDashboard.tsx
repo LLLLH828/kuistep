@@ -23,6 +23,8 @@ interface Props {
   templates: RewardTemplate[];
   currentUserId: string;
   userNickname: string;
+  ssrTiming?: string;
+  ssrTotalMs?: number;
 }
 
 type TabKey = "reward" | "ai" | "tasks";
@@ -35,9 +37,16 @@ export default function ParentDashboard({
   templates,
   currentUserId,
   userNickname,
+  ssrTiming,
+  ssrTotalMs,
 }: Props) {
   const router = useRouter();
   const supabase = createClient();
+
+  // SSR 耗时日志（浏览器 Console 可看到）
+  useEffect(() => {
+    if (ssrTiming) console.log(`[SSR-timing] ${ssrTiming}`);
+  }, [ssrTiming]);
 
   const [tab, setTab] = useState<TabKey>("reward");
   const [activeChildId, setActiveChildId] = useState<string | null>(
