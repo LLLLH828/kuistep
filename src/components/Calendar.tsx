@@ -173,13 +173,39 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
 
   // =================== 统计条（月/周/日视图显示） ===================
   const statsBar = viewMode !== "year" ? (
-    <div className="flex gap-2 text-[11px] mb-3 flex-wrap">
-      {monthStats.pos > 0 && <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded">+{monthStats.pos}</span>}
-      {monthStats.neg < 0 && <span className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded">{monthStats.neg}</span>}
-      {monthStats.taskTotal > 0 && (
-        <span className="text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
-          任务 {monthStats.taskConfirmed}/{monthStats.taskTotal}
-        </span>
+    <div className={`rounded-lg px-2.5 py-1.5 mb-3 flex items-center justify-between text-[11px] ${
+      monthStats.pos + monthStats.neg !== 0 || monthStats.taskTotal > 0
+        ? "bg-gray-50 border border-gray-100" : ""
+    }`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        {monthStats.pos > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="text-green-500">▲</span>
+            <span className="font-semibold text-green-600">+{monthStats.pos}</span>
+          </span>
+        )}
+        {monthStats.neg < 0 && (
+          <span className="flex items-center gap-1">
+            <span className="text-red-400">▼</span>
+            <span className="font-semibold text-red-500">{monthStats.neg}</span>
+          </span>
+        )}
+        {monthStats.pos + monthStats.neg !== 0 && (
+          <span className="text-gray-300">·</span>
+        )}
+        {monthStats.taskTotal > 0 && (
+          <span className="text-gray-500">
+            任务 <span className="font-semibold text-gray-700">{monthStats.taskConfirmed}</span>
+            <span className="text-gray-300">/</span>
+            <span>{monthStats.taskTotal}</span>
+            {monthStats.taskPending > 0 && (
+              <span className="ml-1 text-amber-500">· {monthStats.taskPending}待做</span>
+            )}
+          </span>
+        )}
+      </div>
+      {(monthStats.pos + monthStats.neg === 0 && monthStats.taskTotal === 0) && (
+        <span className="text-gray-300 text-[10px]">本月还没有记录</span>
       )}
     </div>
   ) : null;
