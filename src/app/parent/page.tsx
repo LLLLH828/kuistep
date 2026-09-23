@@ -4,6 +4,7 @@ export const runtime = "edge";
 import { createClient } from "@/lib/supabase/server";
 import { validateConfig } from "@/lib/supabase/config";
 import ParentDashboard from "./ParentDashboard";
+import LogoutButton from "@/components/LogoutButton";
 import type {
   FamilyMember,
   RewardAccount,
@@ -52,7 +53,7 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     }
 
     // 查出当前用户的 parent 行拿 family_id（不再 .single()——一个人可以同时在多个家庭）
-    const { data: members } = await supabase
+    const { data: members, error: memberErr } = await supabase
       .from("family_members")
       .select(`*, family:families(*)`)
       .eq("user_id", user.id)
@@ -64,10 +65,20 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     if (!members) {
       return (
         <main className="min-h-screen flex items-center justify-center p-6">
-          <div className="text-center">
+          <div className="text-center max-w-md">
             <div className="text-4xl mb-2">🏠</div>
             <p className="text-gray-500">找不到你的家庭信息</p>
-            <p className="text-gray-400 text-sm mt-2">这可能是因为数据库还没有初始化，请先在 Supabase SQL Editor 执行 schema.sql</p>
+            {memberErr ? (
+              <p className="text-red-500 text-xs mt-3 break-all bg-red-50 rounded-lg p-2">
+                查询错误：{memberErr.message}
+              </p>
+            ) : null}
+            <p className="text-gray-400 text-xs mt-3">
+              登录账号 ID：{user.id.slice(0, 8)}…（多半是登录态过期，点下方退出后重新登录即可）
+            </p>
+            <div className="mt-4">
+              <LogoutButton />
+            </div>
           </div>
         </main>
       );
