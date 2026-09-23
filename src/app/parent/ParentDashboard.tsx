@@ -421,8 +421,8 @@ function MemberManageModal({
   const [familyNameInput, setFamilyNameInput] = useState(familyName);
 
   // 加入班级
-  const [classCode, setClassCode] = useState("");
-  const [selectedChildIds, setSelectedChildIds] = useState<string[]>([]);
+  // 每个孩子独立的班级邀请码输入：{ childMemberId: code }
+  const [childClassCodes, setChildClassCodes] = useState<Record<string, string>>({});
   const [joinedClasses, setJoinedClasses] = useState<
     { linkId: string; classId: string; className: string; childId: string; childName: string }[]
   >([]);
@@ -532,40 +532,25 @@ function MemberManageModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members.length]);
 
-  // 多选孩子
-  const toggleChildForClass = (childId: string) => {
-    setSelectedChildIds((prev) =>
-      prev.includes(childId) ? prev.filter((id) => id !== childId) : [...prev, childId]
-    );
-  };
-
-  // 输入班级邀请码，把孩子加入班级（走 RPC：校验码 + 孩子归属）
-  const joinClass = async () => {
-    if (!classCode.trim() || selectedChildIds.length === 0) return;
-    setLoading("class");
+  // 单孩子加入班级（每个孩子独立输入班级码）
+  const joinChildClass = async (childId: string) => {
+    const code = childClassCodes[childId]?.trim();
+    if (!code) return;
+    setLoading(`class-${childId}`);
     const { data, error } = await supabase.rpc("join_class_as_parent", {
-      p_code: classCode.trim(),
-      p_child_member_ids: selectedChildIds,
+      p_code: code,
+      p_child_member_ids: [childId],
     });
     setLoading(null);
     if (error) {
       alert(`加入失败：${error.message}`);
       return;
     }
-    if (data === "CLASS_NOT_FOUND") {
-      alert("无效的班级邀请码");
-      return;
-    }
-    if (data === "CHILD_INVALID") {
-      alert("有孩子不属于当前家庭，无法加入");
-      return;
-    }
-    if (data === "NO_FAMILY") {
-      alert("找不到你的家庭信息");
-      return;
-    }
-    setClassCode("");
-    setSelectedChildIds([]);
+    if (data === "CLASS_NOT_FOUND") { alert("无效的班级邀请码"); return; }
+    if (data === "CHILD_INVALID") { alert("孩子不属于当前家庭"); return; }
+    if (data === "NO_FAMILY") { alert("找不到你的家庭信息"); return; }
+    // 清空这个孩子的输入
+    setChildClassCodes((prev) => ({ ...prev, [childId]: "" }));
     alert(`已加入班级「${data}」`);
     fetchJoinedClasses();
   };
@@ -683,6 +668,10 @@ function MemberManageModal({
                   loading={loading}
                   classChips={classMap.get(m.id) || []}
                   onLeaveClass={leaveClass}
+                  classCode={childClassCodes[m.id] || ""}
+                  onClassCodeChange={(v) => setChildClassCodes((prev) => ({ ...prev, [m.id]: v }))}
+                  onJoinClass={() => joinChildClass(m.id)}
+                  joinLoading={loading === `class-${m.id}`}
                 />
               ))}
               {/* 添加占位孩子（整合到孩子列表末尾） */}
@@ -705,50 +694,6 @@ function MemberManageModal({
               </div>
             </div>
           </div>
-        </div>
-
-        {/* 段3：加入班级（底部独立区，因为需要班级码输入） */}
-        <div className="border-t border-gray-100 pt-4">
-          <div className="text-xs text-gray-500 mb-2">
-            加入班级（孩子通过班级关联老师，可加入多个班级）
-          </div>
-          <input
-            type="text"
-            value={classCode}
-            onChange={(e) => setClassCode(e.target.value.toUpperCase())}
-            placeholder="班级邀请码（8位）"
-            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm tracking-widest uppercase mb-2"
-            maxLength={8}
-          />
-          {children.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {children.map((c) => {
-                const selected = selectedChildIds.includes(c.id);
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => toggleChildForClass(c.id)}
-                    className={`px-2 py-1 rounded-lg text-[11px] font-medium transition border ${
-                      selected
-                        ? "bg-indigo-600 text-white border-indigo-600"
-                        : "bg-gray-50 text-gray-600 border-gray-200 hover:border-indigo-300"
-                    }`}
-                  >
-                    {c.nickname || "孩子"}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-[11px] text-gray-400 mb-2">先添加孩子再加入班级</p>
-          )}
-          <button
-            onClick={joinClass}
-            disabled={!classCode.trim() || selectedChildIds.length === 0 || loading === "class"}
-            className="w-full py-2 rounded-lg bg-indigo-500 text-white text-xs disabled:opacity-50"
-          >
-            {loading === "class" ? "加入中..." : `加入班级 · ${selectedChildIds.length} 个孩子`}
-          </button>
         </div>
       </div>
     </div>
@@ -801,7 +746,7 @@ function MemberRow({
   );
 }
 
-/* ChildRow：孩子行，内联已加入班级 chips */
+/* ChildRow：孩子行 = 基本信息 + 已加入班级 chips + 班级码输入（全部内联） */
 function ChildRow({
   member,
   currentUserId,
@@ -809,6 +754,10 @@ function ChildRow({
   loading,
   classChips,
   onLeaveClass,
+  classCode,
+  onClassCodeChange,
+  onJoinClass,
+  joinLoading,
 }: {
   member: FamilyMember;
   currentUserId: string;
@@ -816,6 +765,10 @@ function ChildRow({
   loading: string | null;
   classChips: { linkId: string; className: string }[];
   onLeaveClass: (linkId: string, className: string) => void;
+  classCode: string;
+  onClassCodeChange: (v: string) => void;
+  onJoinClass: () => void;
+  joinLoading: boolean;
 }) {
   const isSelf = member.user_id === currentUserId;
   const hasAccount = member.user_id !== null;
@@ -848,25 +801,44 @@ function ChildRow({
           </button>
         )}
       </div>
-      {/* 第二行：班级 chips（有班级才显示） */}
-      {classChips.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1.5">
-          {classChips.map((c) => (
-            <span
-              key={c.linkId}
-              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600"
-            >
-              🏫 {c.className}
-              <button
-                onClick={() => onLeaveClass(c.linkId, c.className)}
-                disabled={loading === c.linkId}
-                className="ml-0.5 hover:text-red-500 opacity-60 hover:opacity-100"
-                title="退出该班级"
-              >✕</button>
-            </span>
-          ))}
-        </div>
-      )}
+      {/* 第二行：已加入班级 chips */}
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {classChips.length === 0 && (
+          <span className="text-[10px] text-gray-300">还没加入班级</span>
+        )}
+        {classChips.map((c) => (
+          <span
+            key={c.linkId}
+            className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600"
+          >
+            🏫 {c.className}
+            <button
+              onClick={() => onLeaveClass(c.linkId, c.className)}
+              disabled={loading === c.linkId}
+              className="ml-0.5 hover:text-red-500 opacity-60 hover:opacity-100"
+              title="退出该班级"
+            >✕</button>
+          </span>
+        ))}
+      </div>
+      {/* 第三行：加入新班级（每个孩子独立） */}
+      <div className="flex gap-1.5 mt-1.5">
+        <input
+          type="text"
+          value={classCode}
+          onChange={(e) => onClassCodeChange(e.target.value.toUpperCase())}
+          placeholder="班级码"
+          className="flex-1 px-2 py-1 rounded border border-gray-200 text-xs bg-white tracking-widest uppercase"
+          maxLength={8}
+        />
+        <button
+          onClick={onJoinClass}
+          disabled={!classCode.trim() || joinLoading}
+          className="px-2.5 py-1 rounded bg-indigo-500 text-white text-[11px] font-medium disabled:opacity-50 whitespace-nowrap hover:bg-indigo-600"
+        >
+          {joinLoading ? "加入中..." : "+加入班级"}
+        </button>
+      </div>
     </div>
   );
 }
