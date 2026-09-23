@@ -734,7 +734,7 @@ function MemberManageModal({
             <div className="space-y-1.5">
               {children.length === 0 && (
                 <div className="text-xs text-gray-300 text-center py-3 border border-dashed rounded-lg">
-                  还没有孩子，点击"管理"添加
+                  还没有孩子，点击&ldquo;管理&rdquo;添加
                 </div>
               )}
               {children.map((m) => (
@@ -754,7 +754,7 @@ function MemberManageModal({
       {/* 子弹窗：孩子管理 */}
       {subModal === "child" && (
         <ChildManageModal
-          children={children}
+          childMembers={children}
           familyId={familyId}
           loading={loading}
           onAdd={() => onSaved()}
@@ -882,14 +882,14 @@ function ChildRow({
 
 /* ChildManageModal：孩子管理子弹窗（添加 + 删除） */
 function ChildManageModal({
-  children,
+  childMembers,
   familyId,
   loading,
   onAdd,
   onRemove,
   onClose,
 }: {
-  children: FamilyMember[];
+  childMembers: FamilyMember[];
   familyId: string;
   loading: string | null;
   onAdd: () => void;
@@ -933,12 +933,12 @@ function ChildManageModal({
 
         {/* 孩子列表（带删除按钮） */}
         <div className="space-y-1.5 mb-4">
-          {children.length === 0 && (
+          {childMembers.length === 0 && (
             <div className="text-xs text-gray-300 text-center py-3 border border-dashed rounded-lg">
               还没有孩子
             </div>
           )}
-          {children.map((m) => (
+          {childMembers.map((m) => (
             <div key={m.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-sm font-medium text-gray-700 truncate">{m.nickname || "未命名"}</span>
