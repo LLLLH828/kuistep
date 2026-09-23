@@ -2,13 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 // 需要登录才能访问的路由
-const PROTECTED_ROUTES = ["/parent", "/kid"];
+const PROTECTED_ROUTES = ["/parent", "/kid", "/teacher"];
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  // 用 @supabase/ssr 的 createServerClient 处理 cookie 交换，
-  // 并通过 getUser() 真实校验会话（会自动刷新过期 token）
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -30,8 +28,6 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // 用 getSession() 只解析本地 cookie 的 JWT，不发网络请求（快）。
-  // 权威校验由 /parent、/kid 等服务端组件里的 getUser() 兜底。
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -46,11 +42,36 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 已登录访问登录页 → 直接进家长端
+  // 角色只有 parent/child 两种；老师是可叠加的开关（user_metadata.is_teacher）
+  const role = (user?.user_metadata?.role as string) || "parent";
+  const isTeacher = user?.user_metadata?.is_teacher === true;
+
+  // 已登录访问登录页 → 按角色跳转（老师默认进家庭端，从设置里进老师端）
   if (pathname === "/login" && user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/parent";
+    url.pathname = role === "child" ? "/kid" : "/parent";
     return NextResponse.redirect(url);
+  }
+
+  if (user) {
+    // 孩子不能进 /parent
+    if (pathname.startsWith("/parent") && role === "child") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/kid";
+      return NextResponse.redirect(url);
+    }
+    // 家长/老师不能进 /kid
+    if (pathname.startsWith("/kid") && role !== "child") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/parent";
+      return NextResponse.redirect(url);
+    }
+    // /teacher 需要 is_teacher 开关（登录后可在设置里开通）
+    if (pathname.startsWith("/teacher") && !isTeacher) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/parent";
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;

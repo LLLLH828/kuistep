@@ -18,22 +18,28 @@ import CreateTaskModal from "./CreateTaskModal";
 
 interface Props {
   familyId: string;
+  inviteCode: string;
+  allMembers: FamilyMember[];  // 全家成员（parent + child）
   kids: (FamilyMember & { account: RewardAccount | null })[];
   tasks: Task[];
   transactions: RewardTransaction[];
   templates: RewardTemplate[];
   currentUserId: string;
   userNickname: string;
+  isTeacher: boolean;  // user_metadata.is_teacher 开关
 }
 
 export default function ParentDashboard({
   familyId,
+  inviteCode,
+  allMembers,
   kids,
   tasks: initialTasks,
   transactions: initialTxns,
   templates,
   currentUserId,
   userNickname,
+  isTeacher,
 }: Props) {
   const router = useRouter();
   const supabase = createClient();
@@ -42,7 +48,7 @@ export default function ParentDashboard({
     kids[0]?.id || null
   );
   const [showCreateTask, setShowCreateTask] = useState(false);
-  const [showAddChild, setShowAddChild] = useState(false);
+  const [showMemberManage, setShowMemberManage] = useState(false);
   const [showTemplateEdit, setShowTemplateEdit] = useState(false);
   const [showTaskPanel, setShowTaskPanel] = useState(false);
   const [tasks, setTasks] = useState(initialTasks);
@@ -165,7 +171,8 @@ export default function ParentDashboard({
 
           {/* 右：设置 + 退出 */}
           <SettingsMenu
-            onAddChild={() => setShowAddChild(true)}
+            isTeacher={isTeacher}
+            onOpenMembers={() => setShowMemberManage(true)}
             onEditTemplates={() => setShowTemplateEdit(true)}
             onOpenTasks={() => setShowTaskPanel((v) => !v)}
             tasksActive={showTaskPanel}
@@ -237,10 +244,11 @@ export default function ParentDashboard({
       </div>
 
       {/* 创建任务弹窗 */}
-      {showCreateTask && activeChild && (
+      {showCreateTask && kids.length > 0 && (
         <CreateTaskModal
           familyId={familyId}
-          childId={activeChild.id}
+          kids={kids}
+          selectedChildIds={activeChild ? [activeChild.id] : [kids[0].id]}
           currentUserId={currentUserId}
           templates={templates}
           onClose={() => setShowCreateTask(false)}
@@ -251,15 +259,15 @@ export default function ParentDashboard({
         />
       )}
 
-      {/* 添加孩子弹窗 */}
-      {showAddChild && (
-        <AddChildModal
+      {/* 成员管理弹窗 */}
+      {showMemberManage && (
+        <MemberManageModal
           familyId={familyId}
-          onClose={() => setShowAddChild(false)}
-          onAdd={(name) => {
-            handleAddChild(name);
-            setShowAddChild(false);
-          }}
+          inviteCode={inviteCode}
+          members={allMembers}
+          currentUserId={currentUserId}
+          onClose={() => setShowMemberManage(false)}
+          onSaved={() => router.refresh()}
         />
       )}
 
@@ -269,10 +277,12 @@ export default function ParentDashboard({
           dayKey={dayDetail}
           child={activeChild}
           txns={childTxns}
+          tasks={tasks}
           templates={templates}
           currentUserId={currentUserId}
           onClose={() => setDayDetail(null)}
           router={router}
+          onConfirmTask={handleConfirmTask}
         />
       )}
 
@@ -292,17 +302,35 @@ export default function ParentDashboard({
 /* ---------- 设置菜单 ---------- */
 
 function SettingsMenu({
-  onAddChild,
+  isTeacher,
+  onOpenMembers,
   onEditTemplates,
   onOpenTasks,
   tasksActive,
 }: {
-  onAddChild: () => void;
+  isTeacher: boolean;
+  onOpenMembers: () => void;
   onEditTemplates: () => void;
   onOpenTasks: () => void;
   tasksActive: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [enabling, setEnabling] = useState(false);
+  const router = useRouter();
+  const supabase = createClient();
+
+  // 开通老师身份：user_metadata.is_teacher = true（老师是可叠加的开关，不影响家长身份）
+  const enableTeacher = async () => {
+    setOpen(false);
+    setEnabling(true);
+    const { error } = await supabase.auth.updateUser({ data: { is_teacher: true } });
+    setEnabling(false);
+    if (error) {
+      alert(`开通失败：${error.message}`);
+      return;
+    }
+    router.refresh();
+  };
 
   return (
     <div className="relative flex-shrink-0">
@@ -318,10 +346,10 @@ function SettingsMenu({
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl border border-gray-100 shadow-lg z-50 overflow-hidden text-sm">
             <button
-              onClick={() => { setOpen(false); onAddChild(); }}
+              onClick={() => { setOpen(false); onOpenMembers(); }}
               className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
             >
-              <span>👶</span> 添加孩子
+              <span>👥</span> 成员管理
             </button>
             <button
               onClick={() => { setOpen(false); onEditTemplates(); }}
@@ -335,6 +363,22 @@ function SettingsMenu({
             >
               <span>📋</span> 任务管理 {tasksActive && "✓"}
             </button>
+            {isTeacher ? (
+              <button
+                onClick={() => { setOpen(false); router.push("/teacher"); }}
+                className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-indigo-600"
+              >
+                <span>👩‍🏫</span> 老师端
+              </button>
+            ) : (
+              <button
+                onClick={enableTeacher}
+                disabled={enabling}
+                className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+              >
+                <span>👩‍🏫</span> {enabling ? "开通中..." : "开通老师身份"}
+              </button>
+            )}
           </div>
         </>
       )}
@@ -342,51 +386,361 @@ function SettingsMenu({
   );
 }
 
-/* ---------- AddChildModal ---------- */
+/* ---------- MemberManageModal ---------- */
+import { ROLE_LABELS } from "@/types";
 
-function AddChildModal({
+function MemberManageModal({
+  familyId,
+  inviteCode,
+  members,
+  currentUserId,
   onClose,
-  onAdd,
+  onSaved,
 }: {
   familyId: string;
+  inviteCode: string;
+  members: FamilyMember[];
+  currentUserId: string;
   onClose: () => void;
-  onAdd: (name: string) => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState("");
+  const supabase = createClient();
+  const [nickname, setNickname] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
+
+  // 加入班级
+  const [classCode, setClassCode] = useState("");
+  const [selectedChildIds, setSelectedChildIds] = useState<string[]>([]);
+  const [joinedClasses, setJoinedClasses] = useState<
+    { linkId: string; classId: string; className: string; childId: string; childName: string }[]
+  >([]);
+
+  const parents = members.filter((m) => m.role === "parent");
+  const children = members.filter((m) => m.role === "child");
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  const addOfflineChild = async () => {
+    if (!nickname.trim()) return;
+    setLoading("add");
+    const { error } = await supabase.from("family_members").insert({
+      family_id: familyId,
+      role: "child",
+      nickname: nickname.trim(),
+      user_id: null,
+    });
+    setLoading(null);
+    if (error) alert(`添加失败：${error.message}`);
+    else {
+      setNickname("");
+      onSaved();
+    }
+  };
+
+  const removeMember = async (memberId: string, nickname: string) => {
+    if (!confirm(`确定移除 "${nickname}"？`)) return;
+    setLoading(memberId);
+    const { error } = await supabase.from("family_members").delete().eq("id", memberId);
+    setLoading(null);
+    if (error) alert(`删除失败：${error.message}`);
+    else onSaved();
+  };
+
+  // 查孩子们已加入的班级
+  const fetchJoinedClasses = async () => {
+    if (children.length === 0) {
+      setJoinedClasses([]);
+      return;
+    }
+    const childIds = children.map((c) => c.id);
+    const { data: links } = await supabase
+      .from("class_students")
+      .select(`id, class_id, child_member_id`)
+      .in("child_member_id", childIds);
+
+    if (!links || links.length === 0) {
+      setJoinedClasses([]);
+      return;
+    }
+    const classIds = [...new Set((links as any[]).map((l) => l.class_id))];
+    const { data: classRows } = await supabase
+      .from("classes")
+      .select(`id, name`)
+      .in("id", classIds);
+    const nameMap = new Map((classRows || []).map((c: any) => [c.id, c.name]));
+    setJoinedClasses(
+      (links as any[]).map((l) => ({
+        linkId: l.id,
+        classId: l.class_id,
+        className: nameMap.get(l.class_id) || "未知班级",
+        childId: l.child_member_id,
+        childName: children.find((c) => c.id === l.child_member_id)?.nickname || "孩子",
+      }))
+    );
+  };
+
+  useEffect(() => {
+    fetchJoinedClasses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members.length]);
+
+  // 多选孩子
+  const toggleChildForClass = (childId: string) => {
+    setSelectedChildIds((prev) =>
+      prev.includes(childId) ? prev.filter((id) => id !== childId) : [...prev, childId]
+    );
+  };
+
+  // 输入班级邀请码，把孩子加入班级（走 RPC：校验码 + 孩子归属）
+  const joinClass = async () => {
+    if (!classCode.trim() || selectedChildIds.length === 0) return;
+    setLoading("class");
+    const { data, error } = await supabase.rpc("join_class_as_parent", {
+      p_code: classCode.trim(),
+      p_child_member_ids: selectedChildIds,
+    });
+    setLoading(null);
+    if (error) {
+      alert(`加入失败：${error.message}`);
+      return;
+    }
+    if (data === "CLASS_NOT_FOUND") {
+      alert("无效的班级邀请码");
+      return;
+    }
+    if (data === "CHILD_INVALID") {
+      alert("有孩子不属于当前家庭，无法加入");
+      return;
+    }
+    if (data === "NO_FAMILY") {
+      alert("找不到你的家庭信息");
+      return;
+    }
+    setClassCode("");
+    setSelectedChildIds([]);
+    alert(`已加入班级「${data}」`);
+    fetchJoinedClasses();
+  };
+
+  // 退出班级
+  const leaveClass = async (linkId: string, className: string) => {
+    if (!confirm(`确定退出班级「${className}」？`)) return;
+    setLoading(linkId);
+    const { error } = await supabase.from("class_students").delete().eq("id", linkId);
+    setLoading(null);
+    if (error) alert(`退出失败：${error.message}`);
+    else fetchJoinedClasses();
+  };
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"
+      className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl p-6 w-full max-w-sm"
+        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="font-bold text-lg mb-4">添加孩子</h3>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="小名/昵称"
-          className="w-full px-4 py-3 rounded-xl border border-gray-200 mb-4"
-          autoFocus
-        />
-        <div className="flex gap-2">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg text-gray-800">👥 成员管理</h3>
+          <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-xl px-1">✕</button>
+        </div>
+
+        {/* 段1：邀请码 */}
+        <div className="bg-indigo-50 rounded-xl p-4 mb-4">
+          <div className="text-xs text-indigo-500 font-medium mb-1">家庭邀请码</div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-2xl font-bold text-indigo-700 tracking-widest font-mono">
+              {inviteCode}
+            </span>
+            <button
+              onClick={copyCode}
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
+            >
+              {copied ? "已复制" : "复制"}
+            </button>
+          </div>
+          <p className="text-[11px] text-indigo-400 mt-2">
+            把这个码给孩子或老师，他们注册时填入即可加入你的家庭
+          </p>
+        </div>
+
+        {/* 段2：成员列表 */}
+        <div className="space-y-3 mb-4">
+          <div>
+            <div className="text-xs text-gray-400 font-medium mb-2">
+              家长 ({parents.length})
+            </div>
+            <div className="space-y-1.5">
+              {parents.map((m) => (
+                <MemberRow key={m.id} member={m} currentUserId={currentUserId} onRemove={(id) => removeMember(id, m.nickname || "成员")} loading={loading} />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs text-gray-400 font-medium mb-2">
+              孩子 ({children.length})
+            </div>
+            <div className="space-y-1.5">
+              {children.length === 0 && (
+                <div className="text-xs text-gray-300 text-center py-3 border border-dashed rounded-lg">
+                  还没有孩子
+                </div>
+              )}
+              {children.map((m) => (
+                <MemberRow key={m.id} member={m} currentUserId={currentUserId} onRemove={(id) => removeMember(id, m.nickname || "成员")} loading={loading} />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 段3：添加离线孩子 */}
+        <div className="border-t border-gray-100 pt-4 mb-4">
+          <div className="text-xs text-gray-500 mb-2">
+            给还没有账号的孩子先占个位置
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="小名，如：朵朵"
+              className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm"
+              maxLength={10}
+            />
+            <button
+              onClick={addOfflineChild}
+              disabled={!nickname.trim() || loading === "add"}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm disabled:opacity-50"
+            >
+              + 添加
+            </button>
+          </div>
+        </div>
+
+        {/* 段4：加入班级 */}
+        <div className="border-t border-gray-100 pt-4">
+          <div className="text-xs text-gray-500 mb-2">
+            加入班级（孩子通过班级关联老师，可加入多个班级）
+          </div>
+          <input
+            type="text"
+            value={classCode}
+            onChange={(e) => setClassCode(e.target.value.toUpperCase())}
+            placeholder="班级邀请码（8位）"
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm tracking-widest uppercase mb-2"
+            maxLength={8}
+          />
+          {children.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {children.map((c) => {
+                const selected = selectedChildIds.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => toggleChildForClass(c.id)}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-medium transition border ${
+                      selected
+                        ? "bg-indigo-600 text-white border-indigo-600"
+                        : "bg-gray-50 text-gray-600 border-gray-200 hover:border-indigo-300"
+                    }`}
+                  >
+                    {c.nickname || "孩子"}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-400 mb-2">先添加孩子再加入班级</p>
+          )}
           <button
-            onClick={onClose}
-            className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600"
+            onClick={joinClass}
+            disabled={!classCode.trim() || selectedChildIds.length === 0 || loading === "class"}
+            className="w-full py-2 rounded-lg bg-indigo-500 text-white text-xs disabled:opacity-50"
           >
-            取消
+            {loading === "class" ? "加入中..." : `加入班级 · ${selectedChildIds.length} 个孩子`}
           </button>
-          <button
-            onClick={() => name.trim() && onAdd(name.trim())}
-            className="flex-1 py-2 rounded-xl bg-indigo-600 text-white"
-          >
-            添加
-          </button>
+
+          {/* 已加入的班级 */}
+          {joinedClasses.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <div className="text-[11px] text-gray-400">已加入的班级</div>
+              {joinedClasses.map((j) => (
+                <div
+                  key={j.linkId}
+                  className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-xs"
+                >
+                  <span className="text-gray-600 min-w-0 truncate">
+                    <span className="font-medium">{j.childName}</span> · {j.className}
+                  </span>
+                  <button
+                    onClick={() => leaveClass(j.linkId, j.className)}
+                    disabled={loading === j.linkId}
+                    className="text-gray-300 hover:text-red-500 ml-2 flex-shrink-0"
+                    title="退出班级"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function MemberRow({
+  member,
+  currentUserId,
+  onRemove,
+  loading,
+}: {
+  member: FamilyMember;
+  currentUserId: string;
+  onRemove: (id: string) => void;
+  loading: string | null;
+}) {
+  const isSelf = member.user_id === currentUserId;
+  const hasAccount = member.user_id !== null;
+  return (
+    <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm font-medium text-gray-700 truncate">
+          {member.nickname || "未命名"}
+        </span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded ${member.role === "parent" ? "bg-indigo-100 text-indigo-600" : "bg-green-100 text-green-600"}`}>
+          {ROLE_LABELS[member.role]}
+        </span>
+        {member.is_primary && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600">主</span>
+        )}
+        <span className={`text-[10px] px-1.5 py-0.5 rounded ${hasAccount ? "bg-blue-50 text-blue-500" : "bg-gray-100 text-gray-400"}`}>
+          {hasAccount ? "已登录" : "离线"}
+        </span>
+        {isSelf && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">我</span>
+        )}
+      </div>
+      {!isSelf && (
+        <button
+          onClick={() => onRemove(member.id)}
+          disabled={loading === member.id}
+          className="text-gray-300 hover:text-red-500 text-xs"
+          title="移除"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -401,20 +755,25 @@ function DayDetailModal({
   dayKey,
   child,
   txns,
+  tasks,
   templates,
   currentUserId,
   onClose,
   router,
+  onConfirmTask,
 }: {
   dayKey: string;
   child: FamilyMember & { account: RewardAccount | null };
   txns: RewardTransaction[];
+  tasks: Task[];
   templates: RewardTemplate[];
   currentUserId: string;
   onClose: () => void;
   router: any;
+  onConfirmTask: (t: Task) => void;
 }) {
   const supabase = createClient();
+  const [tab, setTab] = useState<"points" | "tasks">("points");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPoints, setEditPoints] = useState(0);
   const [editReason, setEditReason] = useState("");
@@ -424,6 +783,17 @@ function DayDetailModal({
     () => txns.filter((t) => toDayKey(new Date(t.created_at)) === dayKey),
     [txns, dayKey]
   );
+  // 当天due的任务
+  const dayTasks = useMemo(() => {
+    const d = new Date(dayKey);
+    return tasks.filter((t) => {
+      if (t.child_member_id !== child.id) return false;
+      if (!t.due_date) return false;
+      const due = new Date(t.due_date);
+      return due.getFullYear() === d.getFullYear() && due.getMonth() === d.getMonth() && due.getDate() === d.getDate();
+    });
+  }, [tasks, dayKey, child.id]);
+
   const net = dayTxns.reduce((s, t) => s + t.points, 0);
   const dateLabel = `${parseInt(dayKey.slice(5, 7), 10)}月${parseInt(dayKey.slice(8, 10), 10)}日`;
 
@@ -492,7 +862,7 @@ function DayDetailModal({
         className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="font-bold text-lg text-gray-800">
               {dateLabel} · {child.nickname}
@@ -509,82 +879,164 @@ function DayDetailModal({
           </button>
         </div>
 
-        {dayTxns.length === 0 && (
-          <p className="text-gray-400 text-sm text-center py-6">这天还没有记录</p>
-        )}
-        <div className="space-y-2 mb-4">
-          {dayTxns.map((t) => (
-            <div key={t.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
-              {editingId === t.id ? (
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={editReason}
-                    onChange={(e) => setEditReason(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
-                    placeholder="原因"
-                  />
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={editPoints}
-                      onChange={(e) => setEditPoints(parseInt(e.target.value, 10) || 0)}
-                      className="w-24 px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
-                    />
-                    <span className="text-xs text-gray-400">正=加分 负=减分</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => saveEdit(t.id)} className="flex-1 py-1.5 rounded-lg bg-indigo-600 text-white text-sm">保存</button>
-                    <button onClick={() => setEditingId(null)} className="flex-1 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-sm">取消</button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.points > 0 ? "bg-green-500" : "bg-red-500"}`} />
-                    <span className="text-sm text-gray-700 truncate">{t.reason}</span>
-                    {t.dimension && (
-                      <span className="text-xs text-gray-400 flex-shrink-0">[{DIMENSION_LABELS[t.dimension]}]</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                    <span className={`font-mono font-semibold text-sm ${t.points > 0 ? "text-green-600" : "text-red-500"}`}>
-                      {t.points > 0 ? "+" : ""}{t.points}
-                    </span>
-                    <button onClick={() => startEdit(t)} className="text-gray-300 hover:text-indigo-500 px-1.5 text-sm">✎</button>
-                    <button onClick={() => removeTxn(t.id)} className="text-gray-300 hover:text-red-500 px-1.5 text-sm">✕</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+        {/* Tab 切换 */}
+        <div className="flex bg-gray-100 rounded-lg p-0.5 mb-4 text-xs">
+          <button
+            onClick={() => setTab("points")}
+            className={`flex-1 py-1.5 rounded-md font-medium transition ${
+              tab === "points" ? "bg-white shadow text-indigo-600" : "text-gray-500"
+            }`}
+          >
+            🌸 积分 ({dayTxns.length})
+          </button>
+          <button
+            onClick={() => setTab("tasks")}
+            className={`flex-1 py-1.5 rounded-md font-medium transition ${
+              tab === "tasks" ? "bg-white shadow text-indigo-600" : "text-gray-500"
+            }`}
+          >
+            📋 任务 ({dayTasks.length})
+          </button>
         </div>
 
-        {showAdd ? (
-          <div className="border-t border-gray-100 pt-3">
-            <p className="text-xs text-gray-400 mb-2">点击模板快速添加：</p>
-            <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
-              {templates.filter((t) => t.is_active).sort((a, b) => a.sort_order - b.sort_order).map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => addFromTemplate(t.id)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap ${
-                    t.is_decrease ? "bg-red-50 text-red-700 hover:bg-red-100" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                  }`}
-                >
-                  {t.item_name} {t.points > 0 ? "+" : ""}{t.points}
-                </button>
+        {tab === "points" ? (
+          <>
+            {dayTxns.length === 0 && (
+              <p className="text-gray-400 text-sm text-center py-6">这天还没有记录</p>
+            )}
+            <div className="space-y-2 mb-4">
+              {dayTxns.map((t) => (
+                <div key={t.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
+                  {editingId === t.id ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={editReason}
+                        onChange={(e) => setEditReason(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
+                        placeholder="原因"
+                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={editPoints}
+                          onChange={(e) => setEditPoints(parseInt(e.target.value, 10) || 0)}
+                          className="w-24 px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
+                        />
+                        <span className="text-xs text-gray-400">正=加分 负=减分</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => saveEdit(t.id)} className="flex-1 py-1.5 rounded-lg bg-indigo-600 text-white text-sm">保存</button>
+                        <button onClick={() => setEditingId(null)} className="flex-1 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-sm">取消</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.points > 0 ? "bg-green-500" : "bg-red-500"}`} />
+                        <span className="text-sm text-gray-700 truncate">{t.reason}</span>
+                        {t.dimension && (
+                          <span className="text-xs text-gray-400 flex-shrink-0">[{DIMENSION_LABELS[t.dimension]}]</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                        <span className={`font-mono font-semibold text-sm ${t.points > 0 ? "text-green-600" : "text-red-500"}`}>
+                          {t.points > 0 ? "+" : ""}{t.points}
+                        </span>
+                        <button onClick={() => startEdit(t)} className="text-gray-300 hover:text-indigo-500 px-1.5 text-sm">✎</button>
+                        <button onClick={() => removeTxn(t.id)} className="text-gray-300 hover:text-red-500 px-1.5 text-sm">✕</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
-            <button onClick={() => setShowAdd(false)} className="w-full mt-3 py-2 rounded-xl border border-gray-200 text-gray-500 text-sm">收起</button>
-          </div>
+
+            {showAdd ? (
+              <div className="border-t border-gray-100 pt-3">
+                <p className="text-xs text-gray-400 mb-2">点击模板快速添加：</p>
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
+                  {templates.filter((t) => t.is_active).sort((a, b) => a.sort_order - b.sort_order).map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => addFromTemplate(t.id)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap ${
+                        t.is_decrease ? "bg-red-50 text-red-700 hover:bg-red-100" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                      }`}
+                    >
+                      {t.item_name} {t.points > 0 ? "+" : ""}{t.points}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setShowAdd(false)} className="w-full mt-3 py-2 rounded-xl border border-gray-200 text-gray-500 text-sm">收起</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAdd(true)}
+                className="w-full py-2.5 rounded-xl border border-dashed border-indigo-300 text-indigo-600 text-sm hover:bg-indigo-50"
+              >
+                ＋ 新增记录（记到这天）
+              </button>
+            )}
+          </>
         ) : (
-          <button
-            onClick={() => setShowAdd(true)}
-            className="w-full py-2.5 rounded-xl border border-dashed border-indigo-300 text-indigo-600 text-sm hover:bg-indigo-50"
-          >
-            ＋ 新增记录（记到这天）
-          </button>
+          /* 任务 tab */
+          <>
+            {dayTasks.length === 0 && (
+              <p className="text-gray-400 text-sm text-center py-6">这天没有任务</p>
+            )}
+            <div className="space-y-2">
+              {dayTasks.map((t) => {
+                const st = STATUS_LABELS[t.status] || STATUS_LABELS.pending;
+                const pointsEarned = Math.round(t.points_reward * t.points_multiplier);
+                return (
+                  <div
+                    key={t.id}
+                    className={`bg-gray-50 rounded-xl px-3 py-2.5 border ${
+                      t.status === "confirmed" ? "border-green-200 bg-green-50/40" : "border-gray-100"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${st.className}`}>
+                            {st.text}
+                          </span>
+                          {t.mode === "challenge" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">
+                              挑战
+                            </span>
+                          )}
+                          <span className="text-[10px] text-indigo-500">
+                            {pointsEarned}🌸
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-700 truncate">
+                          {t.status === "confirmed" ? "✓ " : ""}
+                          {t.title}
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-0.5">
+                          {DIMENSION_LABELS[t.dimension]} · +{t.points_reward}
+                          {t.mode === "challenge" && `×${t.points_multiplier}`}
+                        </div>
+                      </div>
+                      {t.status === "pending" && (
+                        <button
+                          onClick={() => {
+                            onConfirmTask(t);
+                            router.refresh();
+                          }}
+                          className="text-[11px] px-2 py-1 rounded bg-green-500 text-white flex-shrink-0"
+                        >
+                          ✓ 确认
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </div>

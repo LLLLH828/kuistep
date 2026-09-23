@@ -3,6 +3,8 @@
 export type Dimension = 'de' | 'zhi' | 'ti' | 'mei' | 'lao' | 'custom';
 export type TaskStatus = 'pending' | 'submitted' | 'confirmed' | 'rejected';
 export type TaskMode = 'required' | 'challenge';
+// 登录身份只有两种；老师是可叠加的开关（user_metadata.is_teacher），不是独立角色
+export type UserRole = 'parent' | 'child';
 
 export interface Family {
   id: string;
@@ -14,8 +16,8 @@ export interface Family {
 export interface FamilyMember {
   id: string;
   family_id: string;
-  user_id: string;
-  role: 'parent' | 'child';
+  user_id: string | null;  // 孩子可以暂时没有 user_id
+  role: 'parent' | 'child';  // 老师进家庭也是 parent 成员
   nickname?: string;
   avatar_url?: string;
   is_primary: boolean;
@@ -154,3 +156,31 @@ export const DIMENSION_COLORS: Record<Dimension, string> = {
   lao: '#EF4444',  // 红
   custom: '#6B7280',
 };
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  parent: '家长',
+  child: '孩子',
+};
+
+// 班级系统（孩子关联班级；老师共管班级）
+export interface ClassRoom {
+  id: string;
+  name: string;
+  invite_code: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ClassTeacher {
+  id: string;
+  class_id: string;
+  teacher_user_id: string;
+  created_at: string;
+}
+
+export interface ClassStudent {
+  id: string;
+  class_id: string;
+  child_member_id: string;
+  created_at: string;
+}

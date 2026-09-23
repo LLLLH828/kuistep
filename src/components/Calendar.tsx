@@ -300,6 +300,7 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
   };
 
   // =================== 周视图 ===================
+  const [weekMode, setWeekMode] = useState<"points" | "tasks">("points");
   const weekView = () => {
     // 找到 cursor 所在周的周日
     const startOfWeek = new Date(cursor);
@@ -312,6 +313,26 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
 
     return (
       <div className="space-y-2">
+        {/* 切换条 */}
+        <div className="flex bg-gray-100 rounded-lg p-0.5 text-[11px]">
+          <button
+            onClick={() => setWeekMode("points")}
+            className={`flex-1 py-1 rounded-md font-medium transition ${
+              weekMode === "points" ? "bg-white shadow text-indigo-600" : "text-gray-500"
+            }`}
+          >
+            🌸 积分
+          </button>
+          <button
+            onClick={() => setWeekMode("tasks")}
+            className={`flex-1 py-1 rounded-md font-medium transition ${
+              weekMode === "tasks" ? "bg-white shadow text-indigo-600" : "text-gray-500"
+            }`}
+          >
+            📋 任务
+          </button>
+        </div>
+
         {days.map((d) => {
           const dayKey = toDayKey(d);
           const data = dailyMap[dayKey];
@@ -337,43 +358,50 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
                 )}
               </div>
 
-              {/* 奖罚流水简表 */}
-              {data && data.posCount + data.negCount > 0 && (
-                <div className="flex flex-wrap gap-1 mb-1">
-                  {(txns.filter(t => toDayKey(new Date(t.created_at)) === dayKey)).slice(0, 4).map((t) => (
-                    <span
-                      key={t.id}
-                      className={`text-[10px] px-1 py-0.5 rounded ${
-                        t.points > 0 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
-                      }`}
-                      title={`${t.reason} ${t.points > 0 ? "+" : ""}${t.points}`}
-                    >
-                      {t.reason.slice(0, 6)}{t.reason.length > 6 ? "…" : ""} {t.points > 0 ? "+" : ""}{t.points}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* 任务简表 */}
-              {data && data.tasks.length > 0 && (
-                <div className="space-y-0.5">
-                  {data.tasks.map((t) => {
-                    const st = TASK_STATUS_STYLES[t.status] || TASK_STATUS_STYLES.pending;
-                    return (
-                      <div key={t.id} className="flex items-center gap-1.5 text-[10px]">
-                        <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
-                        <span className="text-gray-600 truncate flex-1">
-                          {t.status === "confirmed" ? "✓ " : ""}{t.title}
+              {weekMode === "points" ? (
+                // 积分模式：只显示奖罚流水
+                <>
+                  {data && data.posCount + data.negCount > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {(txns.filter(t => toDayKey(new Date(t.created_at)) === dayKey)).slice(0, 5).map((t) => (
+                        <span
+                          key={t.id}
+                          className={`text-[10px] px-1 py-0.5 rounded ${
+                            t.points > 0 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+                          }`}
+                          title={`${t.reason} ${t.points > 0 ? "+" : ""}${t.points}`}
+                        >
+                          {t.reason.slice(0, 6)}{t.reason.length > 6 ? "…" : ""} {t.points > 0 ? "+" : ""}{t.points}
                         </span>
-                        <span className="text-gray-400">{st.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {!data && (
-                <p className="text-[10px] text-gray-300">—</p>
+                      ))}
+                    </div>
+                  )}
+                  {(!data || data.posCount + data.negCount === 0) && (
+                    <p className="text-[10px] text-gray-300">—</p>
+                  )}
+                </>
+              ) : (
+                // 任务模式：只显示任务
+                <>
+                  {data && data.tasks.length > 0 ? (
+                    <div className="space-y-0.5">
+                      {data.tasks.map((t) => {
+                        const st = TASK_STATUS_STYLES[t.status] || TASK_STATUS_STYLES.pending;
+                        return (
+                          <div key={t.id} className="flex items-center gap-1.5 text-[10px]">
+                            <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                            <span className="text-gray-600 truncate flex-1">
+                              {t.status === "confirmed" ? "✓ " : ""}{t.title}
+                            </span>
+                            <span className="text-gray-400">{st.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-gray-300">—</p>
+                  )}
+                </>
               )}
             </div>
           );

@@ -71,19 +71,23 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     }
 
     const familyId = members.family_id;
+    const inviteCode = (members as any).family?.invite_code ?? "";
 
-    // 第一次并行：children / tasks / templates —— 都只需要 family_id
+    // 查全家成员（不再 filter role='child'），前端按 role 分流
+    const { data: allMembers } = await supabase
+      .from("family_members")
+      .select(`*`)
+      .eq("family_id", familyId)
+      .order("role")
+      .order("nickname");
+
+    const children = (allMembers || []).filter((m) => m.role === "child");
+
+    // 第一次并行：tasks / templates —— 都只需要 family_id
     const [
-      { data: children },
       { data: tasks },
       { data: templates },
     ] = await Promise.all([
-      supabase
-        .from("family_members")
-        .select(`*`)
-        .eq("family_id", familyId)
-        .eq("role", "child")
-        .order("nickname"),
       supabase
         .from("tasks")
         .select(`*`)
@@ -140,12 +144,15 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     return (
       <ParentDashboard
         familyId={familyId}
+        inviteCode={inviteCode}
+        allMembers={(allMembers || []) as FamilyMember[]}
         kids={childrenWithAccount}
         tasks={(tasks || []) as Task[]}
         transactions={(transactions || []) as RewardTransaction[]}
         templates={(templates || []) as RewardTemplate[]}
         currentUserId={members.id}
         userNickname={members.nickname || ""}
+        isTeacher={user.user_metadata?.is_teacher === true}
       />
     );
   } catch (err: any) {
