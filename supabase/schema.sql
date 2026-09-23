@@ -293,31 +293,15 @@ create policy "update members" on public.family_members for update
 
 -- reward_accounts
 create policy "read accounts" on public.reward_accounts for select
-  using (child_member_id in (
-    select id from public.family_members where family_id = public.get_user_family_id()
-  ));
+  using (child_member_id in (select public.get_my_child_member_ids()));
 
 -- reward_transactions
 create policy "read transactions" on public.reward_transactions for select
-  using (account_id in (
-    select ra.id from public.reward_accounts ra
-    where ra.child_member_id in (
-      select fm.id from public.family_members fm
-      where fm.family_id = public.get_user_family_id()
-    )
-  ));
+  using (account_id in (select public.get_my_child_account_ids()));
 create policy "insert transactions" on public.reward_transactions for insert
   with check (
-    account_id in (
-      select ra.id from public.reward_accounts ra
-      where ra.child_member_id in (
-        select fm.id from public.family_members fm
-        where fm.family_id = public.get_user_family_id()
-      )
-    )
-    and member_id in (
-      select id from public.family_members where family_id = public.get_user_family_id()
-    )
+    account_id in (select public.get_my_child_account_ids())
+    and member_id in (select public.get_my_child_member_ids())
   );
 
 -- tasks
@@ -370,15 +354,52 @@ as $$
   select ct.class_id from public.class_teachers ct where ct.teacher_user_id = auth.uid();
 $$;
 
+-- 辅助函数（全部 security definer，策略里禁止裸查跨表，防止 RLS 递归）
+create or replace function public.get_my_child_member_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select id from public.family_members
+  where family_id = public.get_user_family_id() and role = 'child';
+$$;
+
+create or replace function public.get_my_student_member_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select cs.child_member_id from public.class_students cs
+  where cs.class_id in (select public.get_my_class_ids());
+$$;
+
+create or replace function public.get_my_student_family_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select fm.family_id from public.family_members fm
+  where fm.id in (select public.get_my_student_member_ids());
+$$;
+
+create or replace function public.get_my_parent_class_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select cs.class_id from public.class_students cs
+  where cs.child_member_id in (select public.get_my_child_member_ids());
+$$;
+
+create or replace function public.get_my_child_account_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select ra.id from public.reward_accounts ra
+  where ra.child_member_id in (select public.get_my_child_member_ids());
+$$;
+
 -- classes：共管老师可读；家长可读自己孩子已加入的；创建者可建可改名
 create policy "teachers read their classes" on public.classes for select
   using (id in (select public.get_my_class_ids()));
 create policy "parents read joined classes" on public.classes for select
-  using (id in (
-    select cs.class_id from public.class_students cs
-    join public.family_members fm on fm.id = cs.child_member_id
-    where fm.family_id = public.get_user_family_id()
-  ));
+  using (id in (select public.get_my_parent_class_ids()));
 create policy "creator inserts class" on public.classes for insert
   with check (created_by = auth.uid());
 create policy "creator updates class" on public.classes for update
@@ -399,62 +420,27 @@ create policy "creator removes co-teacher" on public.class_teachers for delete
 create policy "teachers read class students" on public.class_students for select
   using (class_id in (select public.get_my_class_ids()));
 create policy "parents read own children links" on public.class_students for select
-  using (child_member_id in (
-    select id from public.family_members where family_id = public.get_user_family_id()
-  ));
+  using (child_member_id in (select public.get_my_child_member_ids()));
 create policy "parents remove own children" on public.class_students for delete
-  using (child_member_id in (
-    select id from public.family_members where family_id = public.get_user_family_id()
-  ));
+  using (child_member_id in (select public.get_my_child_member_ids()));
 
 -- family_members：老师能看到共管班里的孩子
 create policy "teacher sees class students" on public.family_members for select
-  using (
-    id in (
-      select cs.child_member_id from public.class_students cs
-      where cs.class_id in (select public.get_my_class_ids())
-    )
-  );
+  using (id in (select public.get_my_student_member_ids()));
 
 -- reward_accounts：老师能读共管班孩子的账户
 create policy "teacher reads class accounts" on public.reward_accounts for select
-  using (
-    child_member_id in (
-      select cs.child_member_id from public.class_students cs
-      where cs.class_id in (select public.get_my_class_ids())
-    )
-  );
+  using (child_member_id in (select public.get_my_student_member_ids()));
 
 -- reward_transactions：老师能读共管班孩子的流水
 create policy "teacher reads class txns" on public.reward_transactions for select
-  using (
-    member_id in (
-      select cs.child_member_id from public.class_students cs
-      where cs.class_id in (select public.get_my_class_ids())
-    )
-  );
+  using (member_id in (select public.get_my_student_member_ids()));
 
 -- tasks：老师能读/写共管班孩子所在家庭的任务（布置任务需要 insert）
 create policy "teacher reads class tasks" on public.tasks for select
-  using (
-    family_id in (
-      select fm.family_id from public.family_members fm
-      where fm.id in (
-        select cs.child_member_id from public.class_students cs
-        where cs.class_id in (select public.get_my_class_ids())
-      )
-    )
-  );
+  using (family_id in (select public.get_my_student_family_ids()));
 create policy "teacher inserts class tasks" on public.tasks for insert
-  with check (
-    family_id in (
-      select fm.family_id from public.family_members fm
-      where fm.id in (
-        select cs.child_member_id from public.class_students cs
-        where cs.class_id in (select public.get_my_class_ids())
-      )
-    )
-  );
+  with check (family_id in (select public.get_my_student_family_ids()));
 
 -- ------------------------------------------------------------
 -- 6. 触发器函数
