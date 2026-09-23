@@ -39,7 +39,8 @@ export default async function KidPage() {
       .from("family_members")
       .select("*, family:families(*)")
       .eq("user_id", user.id)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     if (!member) {
       return (

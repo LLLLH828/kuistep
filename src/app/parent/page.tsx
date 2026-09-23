@@ -51,12 +51,15 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
       );
     }
 
-    // 查出当前用户的 parent 行拿 family_id（唯一的串行依赖，后续全部并行）
+    // 查出当前用户的 parent 行拿 family_id（不再 .single()——一个人可以同时在多个家庭）
     const { data: members } = await supabase
       .from("family_members")
       .select(`*, family:families(*)`)
       .eq("user_id", user.id)
-      .single();
+      .order("is_primary", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (!members) {
       return (
