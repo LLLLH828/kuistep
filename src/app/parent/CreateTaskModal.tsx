@@ -11,6 +11,7 @@ interface Props {
   selectedChildIds: string[];
   currentUserId: string;
   templates: RewardTemplate[];
+  scope?: "family" | "school";  // 谁创建的：家长=family，老师=school
   onClose: () => void;
   onCreated: () => void;
 }
@@ -30,6 +31,7 @@ export default function CreateTaskModal({
   selectedChildIds: initialSelected,
   currentUserId,
   templates,
+  scope = "family",
   onClose,
   onCreated,
 }: Props) {
@@ -88,6 +90,7 @@ export default function CreateTaskModal({
         recurrence,
         template_id: templateId,
         created_by: currentUserId,
+        scope,  // 谁创建的：家长=family，老师=school
       };
     });
 

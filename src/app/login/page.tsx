@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [familyName, setFamilyName] = useState("");  // 仅家长注册用
   const [nickname, setNickname] = useState("");
   const [role, setRole] = useState<UserRole>("parent");
   const [isTeacher, setIsTeacher] = useState(false);  // 老师开关（叠加在家长身份上）
@@ -58,7 +59,10 @@ export default function LoginPage() {
         };
 
         if (role === "parent") {
-          signupData.family_name = `${nickname}的家`;
+          // 家长填了家庭邀请码 = 加入已有家庭，不创建新家庭 → 忽略 family_name
+          if (!inviteCode.trim()) {
+            signupData.family_name = familyName.trim() || `${nickname}的家`;
+          }
           if (isTeacher) {
             signupData.is_teacher = true;  // 注册即开通老师身份
           }
@@ -159,6 +163,22 @@ export default function LoginPage() {
               />
               我也是老师（开通后可创建班级、布置任务）
             </label>
+          )}
+
+          {/* 家庭名称（仅家长注册新家庭时显示；填了家庭邀请码=加入已有家庭，跳过） */}
+          {mode === "register" && role === "parent" && !inviteCode.trim() && (
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">家庭名称</label>
+              <input
+                type="text"
+                value={familyName}
+                onChange={(e) => setFamilyName(e.target.value)}
+                placeholder={`默认：${nickname || "你"}的家`}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+                maxLength={12}
+              />
+              <p className="text-[11px] text-gray-400 mt-1">在「成员管理」里可以随时修改</p>
+            </div>
           )}
 
           {/* 昵称（仅注册时） */}

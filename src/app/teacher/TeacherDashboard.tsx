@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Calendar from "@/components/Calendar";
+import DimensionQuickAdd from "@/components/DimensionQuickAdd";
 import CreateTaskModal from "@/app/parent/CreateTaskModal";
 import type {
   ClassRoom,
@@ -12,6 +13,7 @@ import type {
   Task,
   RewardTransaction,
   RewardTemplate,
+  Dimension,
 } from "@/types";
 
 type Kid = FamilyMember & { account: RewardAccount | null };
@@ -70,6 +72,33 @@ export default function TeacherDashboard({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {}
+  };
+
+  // 老师给学校加分（scope='school'，RLS 老师 insert policy 只允许写 scope='school'）
+  const handleDimQuickAdd = async (
+    dim: Dimension,
+    points: number,
+    reason: string
+  ) => {
+    if (!activeKid?.account) {
+      alert("孩子没有小红花账户");
+      return;
+    }
+    const { error } = await supabase.from("reward_transactions").insert({
+      account_id: activeKid.account.id,
+      member_id: activeKid.id,
+      points,
+      reason,
+      dimension: dim,
+      source: "quick",
+      scope: "school",
+      created_by: currentUserId,
+    });
+    if (error) {
+      alert(`加分失败：${error.message}`);
+      return;
+    }
+    router.refresh();
   };
 
   const handleSignOut = async () => {
@@ -241,6 +270,13 @@ export default function TeacherDashboard({
                   onOpenDay={() => { /* 老师端暂不弹每日详情 */ }}
                 />
 
+                {/* 快速加分（学校来源，scope='school'） */}
+                <DimensionQuickAdd
+                  childId={activeKid.id}
+                  txns={childTxns}
+                  onAdd={handleDimQuickAdd}
+                />
+
                 {/* 快速布置任务 */}
                 <div className="bg-white rounded-2xl border border-gray-100 p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -366,6 +402,7 @@ export default function TeacherDashboard({
           selectedChildIds={activeKid ? [activeKid.id] : []}
           currentUserId={currentUserId}
           templates={templates}
+          scope="school"
           onClose={() => setShowCreateTask(false)}
           onCreated={() => {
             setShowCreateTask(false);

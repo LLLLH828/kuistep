@@ -18,6 +18,7 @@ import CreateTaskModal from "./CreateTaskModal";
 
 interface Props {
   familyId: string;
+  familyName: string;
   inviteCode: string;
   allMembers: FamilyMember[];  // 全家成员（parent + child）
   kids: (FamilyMember & { account: RewardAccount | null })[];
@@ -31,6 +32,7 @@ interface Props {
 
 export default function ParentDashboard({
   familyId,
+  familyName,
   inviteCode,
   allMembers,
   kids,
@@ -101,6 +103,7 @@ export default function ParentDashboard({
       reason,
       dimension: dim,
       source: "quick",
+      scope: "family",
       created_by: currentUserId,
     });
     if (error) {
@@ -149,7 +152,7 @@ export default function ParentDashboard({
           {/* 中：家庭名 + 孩子切换（可横滑） */}
           <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto pb-0.5 snap-x">
             <span className="flex-shrink-0 text-[11px] text-gray-400 mr-0.5">
-              {userNickname}家
+              {familyName || "我的家"}
             </span>
             {kids.map((child) => (
               <button
@@ -251,6 +254,7 @@ export default function ParentDashboard({
           selectedChildIds={activeChild ? [activeChild.id] : [kids[0].id]}
           currentUserId={currentUserId}
           templates={templates}
+          scope="family"
           onClose={() => setShowCreateTask(false)}
           onCreated={() => {
             setShowCreateTask(false);
@@ -263,6 +267,7 @@ export default function ParentDashboard({
       {showMemberManage && (
         <MemberManageModal
           familyId={familyId}
+          familyName={familyName}
           inviteCode={inviteCode}
           members={allMembers}
           currentUserId={currentUserId}
@@ -391,6 +396,7 @@ import { ROLE_LABELS } from "@/types";
 
 function MemberManageModal({
   familyId,
+  familyName,
   inviteCode,
   members,
   currentUserId,
@@ -398,6 +404,7 @@ function MemberManageModal({
   onSaved,
 }: {
   familyId: string;
+  familyName: string;
   inviteCode: string;
   members: FamilyMember[];
   currentUserId: string;
@@ -409,6 +416,10 @@ function MemberManageModal({
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
 
+  // 家庭名编辑
+  const [editingFamilyName, setEditingFamilyName] = useState(false);
+  const [familyNameInput, setFamilyNameInput] = useState(familyName);
+
   // 加入班级
   const [classCode, setClassCode] = useState("");
   const [selectedChildIds, setSelectedChildIds] = useState<string[]>([]);
@@ -419,12 +430,42 @@ function MemberManageModal({
   const parents = members.filter((m) => m.role === "parent");
   const children = members.filter((m) => m.role === "child");
 
+  // 构建 childId → 已加入班级列表 的映射（MemberRow 内联 chips 用）
+  const classMap = useMemo(() => {
+    const m = new Map<string, { linkId: string; className: string }[]>();
+    joinedClasses.forEach((j) => {
+      const arr = m.get(j.childId) || [];
+      arr.push({ linkId: j.linkId, className: j.className });
+      m.set(j.childId, arr);
+    });
+    return m;
+  }, [joinedClasses]);
+
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(inviteCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {}
+  };
+
+  const saveFamilyName = async () => {
+    const trimmed = familyNameInput.trim();
+    if (!trimmed || trimmed === familyName) {
+      setEditingFamilyName(false);
+      return;
+    }
+    setLoading("family");
+    const { error } = await supabase
+      .from("families")
+      .update({ name: trimmed })
+      .eq("id", familyId);
+    setLoading(null);
+    if (error) alert(`保存失败：${error.message}`);
+    else {
+      setEditingFamilyName(false);
+      onSaved();
+    }
   };
 
   const addOfflineChild = async () => {
@@ -553,26 +594,64 @@ function MemberManageModal({
           <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-xl px-1">✕</button>
         </div>
 
-        {/* 段1：邀请码 */}
+        {/* 段1：家庭名称 + 邀请码 */}
         <div className="bg-indigo-50 rounded-xl p-4 mb-4">
-          <div className="text-xs text-indigo-500 font-medium mb-1">家庭邀请码</div>
+          {/* 家庭名称（可编辑） */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs text-indigo-500 font-medium flex-shrink-0">家庭名称</span>
+            {editingFamilyName ? (
+              <div className="flex-1 flex gap-1.5">
+                <input
+                  type="text"
+                  value={familyNameInput}
+                  onChange={(e) => setFamilyNameInput(e.target.value)}
+                  className="flex-1 px-2 py-0.5 rounded border border-indigo-200 text-sm bg-white min-w-0"
+                  maxLength={12}
+                  autoFocus
+                />
+                <button
+                  onClick={saveFamilyName}
+                  disabled={loading === "family"}
+                  className="px-2 py-0.5 rounded text-xs bg-indigo-600 text-white"
+                >保存</button>
+                <button
+                  onClick={() => { setEditingFamilyName(false); setFamilyNameInput(familyName); }}
+                  className="px-2 py-0.5 rounded text-xs text-gray-500"
+                >取消</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-base font-bold text-indigo-700 truncate">{familyName || "未命名家庭"}</span>
+                <button
+                  onClick={() => { setFamilyNameInput(familyName); setEditingFamilyName(true); }}
+                  className="text-indigo-400 hover:text-indigo-600 text-xs px-1"
+                  title="编辑家庭名称"
+                >✎</button>
+              </div>
+            )}
+          </div>
+
+          {/* 家庭邀请码 */}
           <div className="flex items-center justify-between gap-2">
-            <span className="text-2xl font-bold text-indigo-700 tracking-widest font-mono">
-              {inviteCode}
-            </span>
-            <button
-              onClick={copyCode}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
-            >
-              {copied ? "已复制" : "复制"}
-            </button>
+            <span className="text-xs text-indigo-500 font-medium flex-shrink-0">家庭邀请码</span>
+            <div className="flex items-center gap-2 flex-1 justify-end">
+              <span className="text-xl font-bold text-indigo-700 tracking-widest font-mono">
+                {inviteCode}
+              </span>
+              <button
+                onClick={copyCode}
+                className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
+              >
+                {copied ? "已复制" : "复制"}
+              </button>
+            </div>
           </div>
           <p className="text-[11px] text-indigo-400 mt-2">
-            把这个码给孩子或老师，他们注册时填入即可加入你的家庭
+            把这个码给家人或老师，他们注册时填入即可加入你的家庭
           </p>
         </div>
 
-        {/* 段2：成员列表 */}
+        {/* 段2：成员列表（孩子行内联班级 chips） */}
         <div className="space-y-3 mb-4">
           <div>
             <div className="text-xs text-gray-400 font-medium mb-2">
@@ -596,37 +675,39 @@ function MemberManageModal({
                 </div>
               )}
               {children.map((m) => (
-                <MemberRow key={m.id} member={m} currentUserId={currentUserId} onRemove={(id) => removeMember(id, m.nickname || "成员")} loading={loading} />
+                <ChildRow
+                  key={m.id}
+                  member={m}
+                  currentUserId={currentUserId}
+                  onRemove={(id) => removeMember(id, m.nickname || "成员")}
+                  loading={loading}
+                  classChips={classMap.get(m.id) || []}
+                  onLeaveClass={leaveClass}
+                />
               ))}
+              {/* 添加占位孩子（整合到孩子列表末尾） */}
+              <div className="flex gap-2 pt-1">
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder="＋ 给还没有账号的孩子先占个位置，如：朵朵"
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm"
+                  maxLength={10}
+                />
+                <button
+                  onClick={addOfflineChild}
+                  disabled={!nickname.trim() || loading === "add"}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm disabled:opacity-50 whitespace-nowrap"
+                >
+                  + 添加
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* 段3：添加离线孩子 */}
-        <div className="border-t border-gray-100 pt-4 mb-4">
-          <div className="text-xs text-gray-500 mb-2">
-            给还没有账号的孩子先占个位置
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="小名，如：朵朵"
-              className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm"
-              maxLength={10}
-            />
-            <button
-              onClick={addOfflineChild}
-              disabled={!nickname.trim() || loading === "add"}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm disabled:opacity-50"
-            >
-              + 添加
-            </button>
-          </div>
-        </div>
-
-        {/* 段4：加入班级 */}
+        {/* 段3：加入班级（底部独立区，因为需要班级码输入） */}
         <div className="border-t border-gray-100 pt-4">
           <div className="text-xs text-gray-500 mb-2">
             加入班级（孩子通过班级关联老师，可加入多个班级）
@@ -668,31 +749,6 @@ function MemberManageModal({
           >
             {loading === "class" ? "加入中..." : `加入班级 · ${selectedChildIds.length} 个孩子`}
           </button>
-
-          {/* 已加入的班级 */}
-          {joinedClasses.length > 0 && (
-            <div className="mt-3 space-y-1">
-              <div className="text-[11px] text-gray-400">已加入的班级</div>
-              {joinedClasses.map((j) => (
-                <div
-                  key={j.linkId}
-                  className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-xs"
-                >
-                  <span className="text-gray-600 min-w-0 truncate">
-                    <span className="font-medium">{j.childName}</span> · {j.className}
-                  </span>
-                  <button
-                    onClick={() => leaveClass(j.linkId, j.className)}
-                    disabled={loading === j.linkId}
-                    className="text-gray-300 hover:text-red-500 ml-2 flex-shrink-0"
-                    title="退出班级"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -740,6 +796,76 @@ function MemberRow({
         >
           ✕
         </button>
+      )}
+    </div>
+  );
+}
+
+/* ChildRow：孩子行，内联已加入班级 chips */
+function ChildRow({
+  member,
+  currentUserId,
+  onRemove,
+  loading,
+  classChips,
+  onLeaveClass,
+}: {
+  member: FamilyMember;
+  currentUserId: string;
+  onRemove: (id: string) => void;
+  loading: string | null;
+  classChips: { linkId: string; className: string }[];
+  onLeaveClass: (linkId: string, className: string) => void;
+}) {
+  const isSelf = member.user_id === currentUserId;
+  const hasAccount = member.user_id !== null;
+  return (
+    <div className="bg-gray-50 rounded-lg px-3 py-2">
+      {/* 第一行：基本信息 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium text-gray-700 truncate">
+            {member.nickname || "未命名"}
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600">
+            {ROLE_LABELS[member.role]}
+          </span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${hasAccount ? "bg-blue-50 text-blue-500" : "bg-gray-100 text-gray-400"}`}>
+            {hasAccount ? "已登录" : "离线"}
+          </span>
+          {isSelf && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">我</span>
+          )}
+        </div>
+        {!isSelf && (
+          <button
+            onClick={() => onRemove(member.id)}
+            disabled={loading === member.id}
+            className="text-gray-300 hover:text-red-500 text-xs"
+            title="移除"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {/* 第二行：班级 chips（有班级才显示） */}
+      {classChips.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {classChips.map((c) => (
+            <span
+              key={c.linkId}
+              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600"
+            >
+              🏫 {c.className}
+              <button
+                onClick={() => onLeaveClass(c.linkId, c.className)}
+                disabled={loading === c.linkId}
+                className="ml-0.5 hover:text-red-500 opacity-60 hover:opacity-100"
+                title="退出该班级"
+              >✕</button>
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

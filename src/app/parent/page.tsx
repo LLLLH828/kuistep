@@ -86,6 +86,7 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
 
     const familyId = members.family_id;
     const inviteCode = (members as any).family?.invite_code ?? "";
+    const familyName = (members as any).family?.name ?? "";
 
     // 查全家成员（不再 filter role='child'），前端按 role 分流
     const { data: allMembers } = await supabase
@@ -158,6 +159,7 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
     return (
       <ParentDashboard
         familyId={familyId}
+        familyName={familyName}
         inviteCode={inviteCode}
         allMembers={(allMembers || []) as FamilyMember[]}
         kids={childrenWithAccount}
