@@ -412,7 +412,6 @@ function MemberManageModal({
   onSaved: () => void;
 }) {
   const supabase = createClient();
-  const [nickname, setNickname] = useState("");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -420,9 +419,16 @@ function MemberManageModal({
   const [editingFamilyName, setEditingFamilyName] = useState(false);
   const [familyNameInput, setFamilyNameInput] = useState(familyName);
 
-  // 加入班级
-  // 每个孩子独立的班级邀请码输入：{ childMemberId: code }
-  const [childClassCodes, setChildClassCodes] = useState<Record<string, string>>({});
+  // 子弹窗状态
+  const [subModal, setSubModal] = useState<null | "child" | "class">(null);
+  const [classManageChildId, setClassManageChildId] = useState<string | null>(null);
+  // 家庭码更新
+  const [regenerating, setRegenerating] = useState(false);
+  // 待审核加入请求
+  const [pendingRequests, setPendingRequests] = useState<
+    { id: string; requester_email: string; requester_nickname: string; role: string; created_at: string }[]
+  >([]);
+  const [currentInviteCode, setCurrentInviteCode] = useState(inviteCode);
   const [joinedClasses, setJoinedClasses] = useState<
     { linkId: string; classId: string; className: string; childId: string; childName: string }[]
   >([]);
@@ -464,23 +470,6 @@ function MemberManageModal({
     if (error) alert(`保存失败：${error.message}`);
     else {
       setEditingFamilyName(false);
-      onSaved();
-    }
-  };
-
-  const addOfflineChild = async () => {
-    if (!nickname.trim()) return;
-    setLoading("add");
-    const { error } = await supabase.from("family_members").insert({
-      family_id: familyId,
-      role: "child",
-      nickname: nickname.trim(),
-      user_id: null,
-    });
-    setLoading(null);
-    if (error) alert(`添加失败：${error.message}`);
-    else {
-      setNickname("");
       onSaved();
     }
   };
@@ -529,30 +518,74 @@ function MemberManageModal({
 
   useEffect(() => {
     fetchJoinedClasses();
+    fetchPendingRequests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members.length]);
 
-  // 单孩子加入班级（每个孩子独立输入班级码）
-  const joinChildClass = async (childId: string) => {
-    const code = childClassCodes[childId]?.trim();
-    if (!code) return;
+  // 单孩子加入班级（在 ClassManageModal 里调用）
+  const joinChildClass = async (childId: string, code: string) => {
+    if (!code.trim()) return;
     setLoading(`class-${childId}`);
     const { data, error } = await supabase.rpc("join_class_as_parent", {
-      p_code: code,
+      p_code: code.trim(),
       p_child_member_ids: [childId],
     });
     setLoading(null);
-    if (error) {
-      alert(`加入失败：${error.message}`);
-      return;
-    }
-    if (data === "CLASS_NOT_FOUND") { alert("无效的班级邀请码"); return; }
-    if (data === "CHILD_INVALID") { alert("孩子不属于当前家庭"); return; }
-    if (data === "NO_FAMILY") { alert("找不到你的家庭信息"); return; }
-    // 清空这个孩子的输入
-    setChildClassCodes((prev) => ({ ...prev, [childId]: "" }));
+    if (error) { alert(`加入失败：${error.message}`); return null; }
+    if (data === "CLASS_NOT_FOUND") { alert("无效的班级邀请码"); return null; }
+    if (data === "CHILD_INVALID") { alert("孩子不属于当前家庭"); return null; }
+    if (data === "NO_FAMILY") { alert("找不到你的家庭信息"); return null; }
     alert(`已加入班级「${data}」`);
     fetchJoinedClasses();
+    return data;
+  };
+
+  // 更新家庭邀请码（不影响已加入的成员）
+  const regenerateInviteCode = async () => {
+    if (!confirm("更新邀请码后，旧码将失效。已加入的家人不受影响。确定更新？")) return;
+    setRegenerating(true);
+    // 生成 6 位随机码（大写字母+数字）
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let newCode = "";
+    for (let i = 0; i < 6; i++) newCode += chars[Math.floor(Math.random() * chars.length)];
+    const { error } = await supabase
+      .from("families")
+      .update({ invite_code: newCode })
+      .eq("id", familyId);
+    setRegenerating(false);
+    if (error) { alert(`更新失败：${error.message}`); return; }
+    setCurrentInviteCode(newCode);
+    alert("邀请码已更新");
+  };
+
+  // 查待审核加入请求
+  const fetchPendingRequests = async () => {
+    const { data } = await supabase
+      .from("family_join_requests")
+      .select("id, requester_email, requester_nickname, role, created_at")
+      .eq("family_id", familyId)
+      .eq("status", "pending");
+    setPendingRequests(data || []);
+  };
+
+  // 审核通过
+  const approveRequest = async (reqId: string) => {
+    setLoading(`approve-${reqId}`);
+    const { error } = await supabase.rpc("approve_family_join", { p_request_id: reqId });
+    setLoading(null);
+    if (error) { alert(`操作失败：${error.message}`); return; }
+    fetchPendingRequests();
+    onSaved();
+  };
+
+  // 拒绝
+  const rejectRequest = async (reqId: string) => {
+    if (!confirm("确定拒绝此申请？")) return;
+    setLoading(`reject-${reqId}`);
+    const { error } = await supabase.rpc("reject_family_join", { p_request_id: reqId });
+    setLoading(null);
+    if (error) { alert(`操作失败：${error.message}`); return; }
+    fetchPendingRequests();
   };
 
   // 退出班级
@@ -621,7 +654,7 @@ function MemberManageModal({
             <span className="text-xs text-indigo-500 font-medium flex-shrink-0">家庭邀请码</span>
             <div className="flex items-center gap-2 flex-1 justify-end">
               <span className="text-xl font-bold text-indigo-700 tracking-widest font-mono">
-                {inviteCode}
+                {currentInviteCode}
               </span>
               <button
                 onClick={copyCode}
@@ -629,14 +662,51 @@ function MemberManageModal({
               >
                 {copied ? "已复制" : "复制"}
               </button>
+              <button
+                onClick={regenerateInviteCode}
+                disabled={regenerating}
+                className="px-3 py-1 rounded-lg bg-gray-100 text-indigo-600 text-xs font-medium hover:bg-gray-200 disabled:opacity-50"
+                title="更新邀请码（旧码失效，已加入成员不受影响）"
+              >
+                {regenerating ? "..." : "更新"}
+              </button>
             </div>
           </div>
           <p className="text-[11px] text-indigo-400 mt-2">
-            把这个码给家人或老师，他们注册时填入即可加入你的家庭
+            把这个码给家人或老师，他们注册时填入后需你审核通过才能加入
           </p>
         </div>
 
-        {/* 段2：成员列表（孩子行内联班级 chips） */}
+        {/* 待审核请求 */}
+        {pendingRequests.length > 0 && (
+          <div className="bg-amber-50 rounded-xl p-3 mb-4">
+            <div className="text-xs text-amber-600 font-medium mb-2">待审核 ({pendingRequests.length})</div>
+            <div className="space-y-1.5">
+              {pendingRequests.map((r) => (
+                <div key={r.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-medium text-gray-700 truncate">{r.requester_nickname}</span>
+                    <span className="text-[10px] text-gray-400 truncate">{r.requester_email}</span>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => approveRequest(r.id)}
+                      disabled={loading === `approve-${r.id}`}
+                      className="px-2 py-0.5 rounded text-xs bg-green-500 text-white hover:bg-green-600 disabled:opacity-50"
+                    >通过</button>
+                    <button
+                      onClick={() => rejectRequest(r.id)}
+                      disabled={loading === `reject-${r.id}`}
+                      className="px-2 py-0.5 rounded text-xs bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50"
+                    >拒绝</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 段2：成员列表 */}
         <div className="space-y-3 mb-4">
           <div>
             <div className="text-xs text-gray-400 font-medium mb-2">
@@ -650,13 +720,21 @@ function MemberManageModal({
           </div>
 
           <div>
-            <div className="text-xs text-gray-400 font-medium mb-2">
-              孩子 ({children.length})
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs text-gray-400 font-medium">
+                孩子 ({children.length})
+              </div>
+              <button
+                onClick={() => setSubModal("child")}
+                className="text-xs text-indigo-500 hover:text-indigo-600 font-medium"
+              >
+                管理
+              </button>
             </div>
             <div className="space-y-1.5">
               {children.length === 0 && (
                 <div className="text-xs text-gray-300 text-center py-3 border border-dashed rounded-lg">
-                  还没有孩子
+                  还没有孩子，点击"管理"添加
                 </div>
               )}
               {children.map((m) => (
@@ -664,38 +742,38 @@ function MemberManageModal({
                   key={m.id}
                   member={m}
                   currentUserId={currentUserId}
-                  onRemove={(id) => removeMember(id, m.nickname || "成员")}
-                  loading={loading}
                   classChips={classMap.get(m.id) || []}
-                  onLeaveClass={leaveClass}
-                  classCode={childClassCodes[m.id] || ""}
-                  onClassCodeChange={(v) => setChildClassCodes((prev) => ({ ...prev, [m.id]: v }))}
-                  onJoinClass={() => joinChildClass(m.id)}
-                  joinLoading={loading === `class-${m.id}`}
+                  onManageClass={() => { setClassManageChildId(m.id); setSubModal("class"); }}
                 />
               ))}
-              {/* 添加占位孩子（整合到孩子列表末尾） */}
-              <div className="flex gap-2 pt-1">
-                <input
-                  type="text"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  placeholder="＋ 给还没有账号的孩子先占个位置，如：朵朵"
-                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm"
-                  maxLength={10}
-                />
-                <button
-                  onClick={addOfflineChild}
-                  disabled={!nickname.trim() || loading === "add"}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm disabled:opacity-50 whitespace-nowrap"
-                >
-                  + 添加
-                </button>
-              </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* 子弹窗：孩子管理 */}
+      {subModal === "child" && (
+        <ChildManageModal
+          children={children}
+          familyId={familyId}
+          loading={loading}
+          onAdd={() => onSaved()}
+          onRemove={removeMember}
+          onClose={() => setSubModal(null)}
+        />
+      )}
+
+      {/* 子弹窗：班级管理 */}
+      {subModal === "class" && classManageChildId && (
+        <ClassManageModal
+          child={children.find((c) => c.id === classManageChildId)!}
+          classChips={classMap.get(classManageChildId) || []}
+          onJoin={(code) => joinChildClass(classManageChildId, code)}
+          onLeave={leaveClass}
+          loading={loading}
+          onClose={() => { setSubModal(null); setClassManageChildId(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -746,35 +824,23 @@ function MemberRow({
   );
 }
 
-/* ChildRow：孩子行 = 基本信息 + 已加入班级 chips + 班级码输入（全部内联） */
+/* ChildRow：孩子行 = 基本信息 + 班级 chips（只读展示，管理在弹窗里） */
 function ChildRow({
   member,
   currentUserId,
-  onRemove,
-  loading,
   classChips,
-  onLeaveClass,
-  classCode,
-  onClassCodeChange,
-  onJoinClass,
-  joinLoading,
+  onManageClass,
 }: {
   member: FamilyMember;
   currentUserId: string;
-  onRemove: (id: string) => void;
-  loading: string | null;
   classChips: { linkId: string; className: string }[];
-  onLeaveClass: (linkId: string, className: string) => void;
-  classCode: string;
-  onClassCodeChange: (v: string) => void;
-  onJoinClass: () => void;
-  joinLoading: boolean;
+  onManageClass: () => void;
 }) {
   const isSelf = member.user_id === currentUserId;
   const hasAccount = member.user_id !== null;
   return (
     <div className="bg-gray-50 rounded-lg px-3 py-2">
-      {/* 第一行：基本信息 */}
+      {/* 第一行：基本信息 + 班级管理按钮 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-medium text-gray-700 truncate">
@@ -790,54 +856,208 @@ function ChildRow({
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">我</span>
           )}
         </div>
-        {!isSelf && (
-          <button
-            onClick={() => onRemove(member.id)}
-            disabled={loading === member.id}
-            className="text-gray-300 hover:text-red-500 text-xs"
-            title="移除"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-      {/* 第二行：已加入班级 chips */}
-      <div className="flex flex-wrap gap-1 mt-1.5">
-        {classChips.length === 0 && (
-          <span className="text-[10px] text-gray-300">还没加入班级</span>
-        )}
-        {classChips.map((c) => (
-          <span
-            key={c.linkId}
-            className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600"
-          >
-            🏫 {c.className}
-            <button
-              onClick={() => onLeaveClass(c.linkId, c.className)}
-              disabled={loading === c.linkId}
-              className="ml-0.5 hover:text-red-500 opacity-60 hover:opacity-100"
-              title="退出该班级"
-            >✕</button>
-          </span>
-        ))}
-      </div>
-      {/* 第三行：加入新班级（每个孩子独立） */}
-      <div className="flex gap-1.5 mt-1.5">
-        <input
-          type="text"
-          value={classCode}
-          onChange={(e) => onClassCodeChange(e.target.value.toUpperCase())}
-          placeholder="班级码"
-          className="flex-1 px-2 py-1 rounded border border-gray-200 text-xs bg-white tracking-widest uppercase"
-          maxLength={8}
-        />
         <button
-          onClick={onJoinClass}
-          disabled={!classCode.trim() || joinLoading}
-          className="px-2.5 py-1 rounded bg-indigo-500 text-white text-[11px] font-medium disabled:opacity-50 whitespace-nowrap hover:bg-indigo-600"
+          onClick={onManageClass}
+          className="text-xs text-indigo-500 hover:text-indigo-600 font-medium flex-shrink-0"
         >
-          {joinLoading ? "加入中..." : "+加入班级"}
+          班级管理
         </button>
+      </div>
+      {/* 第二行：已加入班级 chips（只读，空则不显示） */}
+      {classChips.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {classChips.map((c) => (
+            <span
+              key={c.linkId}
+              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600"
+            >
+              🏫 {c.className}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ChildManageModal：孩子管理子弹窗（添加 + 删除） */
+function ChildManageModal({
+  children,
+  familyId,
+  loading,
+  onAdd,
+  onRemove,
+  onClose,
+}: {
+  children: FamilyMember[];
+  familyId: string;
+  loading: string | null;
+  onAdd: () => void;
+  onRemove: (memberId: string, nickname: string) => void;
+  onClose: () => void;
+}) {
+  const [nickname, setNickname] = useState("");
+  const [adding, setAdding] = useState(false);
+  const supabase = createClient();
+
+  const handleAdd = async () => {
+    if (!nickname.trim()) return;
+    setAdding(true);
+    const { error } = await supabase.from("family_members").insert({
+      family_id: familyId,
+      role: "child",
+      nickname: nickname.trim(),
+      user_id: null,
+    });
+    setAdding(false);
+    if (error) alert(`添加失败：${error.message}`);
+    else {
+      setNickname("");
+      onAdd();
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-[60]"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg text-gray-800">孩子管理</h3>
+          <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-xl px-1">✕</button>
+        </div>
+
+        {/* 孩子列表（带删除按钮） */}
+        <div className="space-y-1.5 mb-4">
+          {children.length === 0 && (
+            <div className="text-xs text-gray-300 text-center py-3 border border-dashed rounded-lg">
+              还没有孩子
+            </div>
+          )}
+          {children.map((m) => (
+            <div key={m.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-medium text-gray-700 truncate">{m.nickname || "未命名"}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${m.user_id ? "bg-blue-50 text-blue-500" : "bg-gray-100 text-gray-400"}`}>
+                  {m.user_id ? "已登录" : "离线"}
+                </span>
+              </div>
+              <button
+                onClick={() => onRemove(m.id, m.nickname || "孩子")}
+                disabled={loading === m.id}
+                className="text-xs text-red-400 hover:text-red-500 disabled:opacity-50"
+              >删除</button>
+            </div>
+          ))}
+        </div>
+
+        {/* 添加孩子 */}
+        <div className="border-t border-gray-100 pt-4">
+          <div className="text-xs text-gray-500 mb-2">添加孩子（先占位置，后续可绑定账号）</div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="小名，如：朵朵"
+              className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm"
+              maxLength={10}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            />
+            <button
+              onClick={handleAdd}
+              disabled={!nickname.trim() || adding}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm disabled:opacity-50 whitespace-nowrap"
+            >{adding ? "..." : "+ 添加"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ClassManageModal：班级管理子弹窗（加入 + 退出） */
+function ClassManageModal({
+  child,
+  classChips,
+  onJoin,
+  onLeave,
+  loading,
+  onClose,
+}: {
+  child: FamilyMember;
+  classChips: { linkId: string; className: string }[];
+  onJoin: (code: string) => Promise<string | null>;
+  onLeave: (linkId: string, className: string) => void;
+  loading: string | null;
+  onClose: () => void;
+}) {
+  const [code, setCode] = useState("");
+
+  const handleJoin = async () => {
+    const result = await onJoin(code);
+    if (result) setCode("");
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-[60]"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg text-gray-800">{child.nickname || "孩子"} 的班级</h3>
+          <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-xl px-1">✕</button>
+        </div>
+
+        {/* 已加入班级列表 */}
+        <div className="space-y-1.5 mb-4">
+          {classChips.length === 0 && (
+            <div className="text-xs text-gray-300 text-center py-3 border border-dashed rounded-lg">
+              还没加入任何班级
+            </div>
+          )}
+          {classChips.map((c) => (
+            <div key={c.linkId} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+              <span className="text-sm font-medium text-gray-700">🏫 {c.className}</span>
+              <button
+                onClick={() => onLeave(c.linkId, c.className)}
+                disabled={loading === c.linkId}
+                className="text-xs text-red-400 hover:text-red-500 disabled:opacity-50"
+              >退出</button>
+            </div>
+          ))}
+        </div>
+
+        {/* 加入新班级 */}
+        <div className="border-t border-gray-100 pt-4">
+          <div className="text-xs text-gray-500 mb-2">加入新班级</div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="班级邀请码（8位）"
+              className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm tracking-widest uppercase"
+              maxLength={8}
+              onKeyDown={(e) => e.key === "Enter" && handleJoin()}
+            />
+            <button
+              onClick={handleJoin}
+              disabled={!code.trim() || loading === `class-${child.id}`}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm disabled:opacity-50 whitespace-nowrap"
+            >
+              {loading === `class-${child.id}` ? "加入中..." : "加入"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

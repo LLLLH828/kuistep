@@ -63,6 +63,50 @@ SUPABASE_SERVICE_ROLE_KEY=xxx`}
       .maybeSingle();
 
     if (!members) {
+      // 检查是否有待审核的家庭加入请求
+      const { data: pendingReq } = await supabase
+        .from("family_join_requests")
+        .select("status, requester_nickname")
+        .eq("requester_user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (pendingReq?.status === "pending") {
+        return (
+          <main className="min-h-screen flex items-center justify-center p-6">
+            <div className="text-center max-w-md">
+              <div className="text-5xl mb-4">⏳</div>
+              <h1 className="text-xl font-bold text-indigo-600 mb-2">等待审核</h1>
+              <p className="text-gray-500 text-sm mb-4">
+                你好「{pendingReq.requester_nickname}」，你的家庭加入申请已提交，请等待家庭管理员审核通过。
+              </p>
+              <p className="text-gray-400 text-xs mb-4">审核通过后，重新登录即可进入家庭。</p>
+              <div className="mt-4">
+                <LogoutButton />
+              </div>
+            </div>
+          </main>
+        );
+      }
+
+      if (pendingReq?.status === "rejected") {
+        return (
+          <main className="min-h-screen flex items-center justify-center p-6">
+            <div className="text-center max-w-md">
+              <div className="text-5xl mb-4">❌</div>
+              <h1 className="text-xl font-bold text-red-500 mb-2">申请被拒绝</h1>
+              <p className="text-gray-500 text-sm mb-4">
+                你的家庭加入申请未通过审核。请联系家庭管理员或重新注册。
+              </p>
+              <div className="mt-4">
+                <LogoutButton />
+              </div>
+            </div>
+          </main>
+        );
+      }
+
       return (
         <main className="min-h-screen flex items-center justify-center p-6">
           <div className="text-center max-w-md">

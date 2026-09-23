@@ -80,7 +80,7 @@ export default function LoginPage() {
         });
         if (error) throw error;
 
-        // 注册后跳转
+        // 注册后跳转（用了家庭码的，parent 页会显示"等待审核"）
         router.push(getRedirectPath(role));
       }
     } catch (err: any) {
