@@ -171,42 +171,22 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
     </div>
   );
 
-  // =================== 统计条（月/周/日视图显示） ===================
+  // =================== 统计条（月/周/日视图显示，四张小卡片） ===================
   const statsBar = viewMode !== "year" ? (
-    <div className={`rounded-lg px-2.5 py-1.5 mb-3 flex items-center justify-between text-[11px] ${
-      monthStats.pos + monthStats.neg !== 0 || monthStats.taskTotal > 0
-        ? "bg-gray-50 border border-gray-100" : ""
-    }`}>
-      <div className="flex items-center gap-2 flex-wrap">
-        {monthStats.pos > 0 && (
-          <span className="flex items-center gap-1">
-            <span className="text-green-500">▲</span>
-            <span className="font-semibold text-green-600">+{monthStats.pos}</span>
-          </span>
-        )}
-        {monthStats.neg < 0 && (
-          <span className="flex items-center gap-1">
-            <span className="text-red-400">▼</span>
-            <span className="font-semibold text-red-500">{monthStats.neg}</span>
-          </span>
-        )}
-        {monthStats.pos + monthStats.neg !== 0 && (
-          <span className="text-gray-300">·</span>
-        )}
-        {monthStats.taskTotal > 0 && (
-          <span className="text-gray-500">
-            任务 <span className="font-semibold text-gray-700">{monthStats.taskConfirmed}</span>
-            <span className="text-gray-300">/</span>
-            <span>{monthStats.taskTotal}</span>
-            {monthStats.taskPending > 0 && (
-              <span className="ml-1 text-amber-500">· {monthStats.taskPending}待做</span>
-            )}
-          </span>
-        )}
-      </div>
-      {(monthStats.pos + monthStats.neg === 0 && monthStats.taskTotal === 0) && (
-        <span className="text-gray-300 text-[10px]">本月还没有记录</span>
-      )}
+    <div className="grid grid-cols-4 gap-1.5 mb-3">
+      <StatCard
+        label="净分"
+        value={monthStats.pos + monthStats.neg === 0 ? "—" : (monthStats.pos + monthStats.neg > 0 ? `+${monthStats.pos + monthStats.neg}` : String(monthStats.pos + monthStats.neg))}
+        tone={monthStats.pos + monthStats.neg > 0 ? "green" : monthStats.pos + monthStats.neg < 0 ? "red" : "gray"}
+      />
+      <StatCard label="加分" value={monthStats.pos > 0 ? `+${monthStats.pos}` : "—"} tone={monthStats.pos > 0 ? "green" : "gray"} />
+      <StatCard label="减分" value={monthStats.neg < 0 ? String(monthStats.neg) : "—"} tone={monthStats.neg < 0 ? "red" : "gray"} />
+      <StatCard
+        label="任务"
+        value={monthStats.taskTotal > 0 ? `${monthStats.taskConfirmed}/${monthStats.taskTotal}` : "—"}
+        tone={monthStats.taskTotal === 0 ? "gray" : monthStats.taskPending > 0 ? "amber" : "green"}
+        sub={monthStats.taskPending > 0 ? `${monthStats.taskPending}待做` : undefined}
+      />
     </div>
   ) : null;
 
@@ -238,57 +218,64 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
               date.getMonth() === today.getMonth() &&
               date.getFullYear() === today.getFullYear();
 
-            // 热力背景
+            // 热力背景 + 分数颜色
             let bg = "bg-gray-50";
-            let textColor = "text-gray-400";
+            let numColor = "text-gray-400";
             if (data) {
               if (data.net > 0) {
-                textColor = "text-green-700";
+                numColor = "text-green-700";
                 const abs = Math.min(Math.abs(data.net), 10);
                 bg = abs < 3 ? "bg-green-100" : abs < 6 ? "bg-green-200" : "bg-green-300";
               } else if (data.net < 0) {
-                textColor = "text-red-600";
+                numColor = "text-red-600";
                 bg = "bg-red-100";
+              } else if (data.tasks.length > 0) {
+                bg = "bg-amber-50";
               }
             }
 
             const taskCount = data?.tasks.length ?? 0;
+            const confirmedCount = data
+              ? data.tasks.filter((t) => t.status === "confirmed").length
+              : 0;
+            const allDone = taskCount > 0 && confirmedCount === taskCount;
 
             return (
               <button
                 key={i}
                 onClick={() => onOpenDay(dayKey)}
-                className={`aspect-square rounded-lg ${bg} ${isToday ? "ring-2 ring-indigo-400" : ""} flex flex-col p-0.5 relative cursor-pointer transition hover:ring-1 hover:ring-gray-300`}
+                className={`aspect-square rounded-lg ${bg} ${isToday ? "ring-2 ring-indigo-500 ring-offset-1" : ""} flex flex-col items-center justify-center relative cursor-pointer transition hover:ring-1 hover:ring-indigo-300 active:scale-95`}
               >
-                {/* 日期数字 */}
-                <span className={`text-[10px] leading-none self-start ${textColor}`}>
+                {/* 日期数字（左上角） */}
+                <span className={`absolute top-0.5 left-1 text-[9px] font-semibold leading-none ${numColor}`}>
                   {date.getDate()}
                 </span>
 
-                {/* 分数（如果有） */}
+                {/* 中央分数（加粗放大） */}
                 {data && data.net !== 0 && (
-                  <span className={`text-[9px] font-bold leading-none self-center ${textColor}`}>
+                  <span className={`text-[13px] font-extrabold leading-none ${numColor}`}>
                     {data.net > 0 ? "+" : ""}{data.net}
                   </span>
                 )}
+                {(!data || data.net === 0) && taskCount > 0 && (
+                  <span className="text-[11px] leading-none">📋</span>
+                )}
 
-                {/* 任务 + 维度小点（右下角一行） */}
-                <div className="absolute bottom-0.5 left-0.5 right-0.5 flex gap-0.5 items-center justify-end">
-                  {taskCount > 0 && (
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      data.tasks.every(t => t.status === "confirmed") ? "bg-green-500" : "bg-amber-400"
-                    }`} />
-                  )}
-                  {/* 维度小点（最多显示 2 个） */}
-                  {data && Array.from(data.dims).slice(0, 2).map((d, di) => (
-                    <span key={di} className={`w-1 h-1 rounded-full ${dimDotColor(d)}`} />
-                  ))}
-                </div>
+                {/* 任务完成进度 pill（底部居中） */}
+                {taskCount > 0 && (
+                  <span
+                    className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 px-1 rounded-full text-[7px] font-bold leading-[11px] text-white ${allDone ? "bg-green-500" : "bg-amber-400"}`}
+                  >
+                    {confirmedCount}/{taskCount}
+                  </span>
+                )}
 
-                {/* 任务计数角标 */}
-                {taskCount > 0 && data && (
-                  <span className="absolute top-0.5 right-0.5 text-[8px] text-gray-400 leading-none">
-                    {taskCount}
+                {/* 维度小点（左下角，最多 2 个） */}
+                {data && data.dims.size > 0 && (
+                  <span className="absolute bottom-0.5 left-1 flex gap-px">
+                    {Array.from(data.dims).slice(0, 2).map((d, di) => (
+                      <span key={di} className={`w-1 h-1 rounded-full ${dimDotColor(d)}`} />
+                    ))}
                   </span>
                 )}
               </button>
@@ -551,17 +538,46 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
 
       {/* 图例（仅月视图显示） */}
       {viewMode === "month" && (
-        <div className="flex items-center justify-end gap-3 mt-2 text-[9px] text-gray-400">
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" />待做</span>
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />完成</span>
+        <div className="flex items-center justify-end gap-2.5 mt-2 text-[9px] text-gray-400 flex-wrap">
+          <span className="flex items-center gap-1">
+            <span className="px-1 rounded-full bg-amber-400 text-white text-[7px] font-bold leading-[11px]">1/3</span>任务进行
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="px-1 rounded-full bg-green-500 text-white text-[7px] font-bold leading-[11px]">2/2</span>全完成
+          </span>
           <span className="w-px h-3 bg-gray-200" />
-          <span>少</span>
-          <span className="w-3 h-3 rounded bg-gray-50" />
+          <span>分数：少</span>
           <span className="w-3 h-3 rounded bg-green-100" />
           <span className="w-3 h-3 rounded bg-green-200" />
           <span className="w-3 h-3 rounded bg-green-300" />
           <span>多</span>
         </div>
+      )}
+    </div>
+  );
+}
+
+// =================== 统计小卡片 ===================
+function StatCard({ label, value, tone, sub }: {
+  label: string;
+  value: string;
+  tone: "green" | "red" | "amber" | "gray";
+  sub?: string;
+}) {
+  const toneClass = {
+    green: "text-green-600",
+    red: "text-red-500",
+    amber: "text-amber-600",
+    gray: "text-gray-600",
+  }[tone];
+  return (
+    <div className="bg-gray-50 rounded-lg border border-gray-100 py-1.5 px-1 text-center">
+      <p className="text-[9px] text-gray-400 leading-none mb-1">{label}</p>
+      <p className={`text-[13px] font-extrabold leading-none tabular-nums ${toneClass}`}>{value}</p>
+      {sub ? (
+        <p className="text-[8px] text-amber-500 mt-0.5 leading-none">{sub}</p>
+      ) : (
+        <p className="text-[8px] mt-0.5 leading-none invisible">·</p>
       )}
     </div>
   );

@@ -8,13 +8,15 @@ interface DimensionQuickAddProps {
   childId: string;
   txns: RewardTransaction[];
   onAdd: (dimension: Dimension, points: number, reason: string) => Promise<void>;
+  /** 渲染在标题行之下的插槽（如孩子多选行） */
+  topSlot?: React.ReactNode;
 }
 
 // 加分常用分值档位
 const PLUS_PRESETS = [1, 2, 5, 10];
 const MINUS_PRESETS = [1, 2, 5];
 
-export default function DimensionQuickAdd({ childId, txns, onAdd }: DimensionQuickAddProps) {
+export default function DimensionQuickAdd({ childId, txns, onAdd, topSlot }: DimensionQuickAddProps) {
   // 当前展开的维度（null = 全部收起）
   const [openDim, setOpenDim] = useState<Dimension | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -58,6 +60,9 @@ export default function DimensionQuickAdd({ childId, txns, onAdd }: DimensionQui
         <span className="text-xs text-gray-500 font-medium">🎨 快速加分 · 德智体美劳</span>
         <span className="text-[10px] text-gray-400">点击颜色选分值</span>
       </div>
+
+      {/* 插槽：孩子多选行等 */}
+      {topSlot}
 
       {/* 5 维颜色按钮横排 */}
       <div className="grid grid-cols-5 gap-2">
