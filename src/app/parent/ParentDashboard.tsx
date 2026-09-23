@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -512,6 +512,18 @@ function MemberManageModal({
     else onSaved();
   };
 
+  // 成员改名（家长行 ✎ 按钮）
+  const renameMember = async (memberId: string, nickname: string) => {
+    setLoading(memberId);
+    const { error } = await supabase
+      .from("family_members")
+      .update({ nickname })
+      .eq("id", memberId);
+    setLoading(null);
+    if (error) alert(`改名失败：${error.message}`);
+    else onSaved();
+  };
+
   // 查孩子们已加入的班级
   const fetchJoinedClasses = async () => {
     if (children.length === 0) {
@@ -743,7 +755,7 @@ function MemberManageModal({
             </div>
             <div className="space-y-1.5">
               {parents.map((m) => (
-                <MemberRow key={m.id} member={m} currentUserId={currentUserId} onRemove={(id) => removeMember(id, m.nickname || "成员")} loading={loading} />
+                <MemberRow key={m.id} member={m} currentUserId={currentUserId} onRemove={(id) => removeMember(id, m.nickname || "成员")} onRename={renameMember} loading={loading} />
               ))}
             </div>
           </div>
@@ -811,43 +823,91 @@ function MemberRow({
   member,
   currentUserId,
   onRemove,
+  onRename,
   loading,
 }: {
   member: FamilyMember;
   currentUserId: string;
   onRemove: (id: string) => void;
+  onRename: (id: string, nickname: string) => Promise<void>;
   loading: string | null;
 }) {
-  const isSelf = member.user_id === currentUserId;
+  // 注意：currentUserId 是 family_members 行 id，不是 auth user id
+  const isSelf = member.id === currentUserId;
   const hasAccount = member.user_id !== null;
+  const [editing, setEditing] = useState(false);
+  const [nameInput, setNameInput] = useState(member.nickname || "");
+  const [saving, setSaving] = useState(false);
+
+  const saveRename = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === member.nickname) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    await onRename(member.id, trimmed);
+    setSaving(false);
+    setEditing(false);
+  };
+
   return (
     <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="text-sm font-medium text-gray-700 truncate">
-          {member.nickname || "未命名"}
-        </span>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${member.role === "parent" ? "bg-indigo-100 text-indigo-600" : "bg-green-100 text-green-600"}`}>
-          {ROLE_LABELS[member.role]}
-        </span>
-        {member.is_primary && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600">主</span>
-        )}
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${hasAccount ? "bg-blue-50 text-blue-500" : "bg-gray-100 text-gray-400"}`}>
-          {hasAccount ? "已登录" : "离线"}
-        </span>
-        {isSelf && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">我</span>
-        )}
-      </div>
-      {!isSelf && (
-        <button
-          onClick={() => onRemove(member.id)}
-          disabled={loading === member.id}
-          className="text-gray-300 hover:text-red-500 text-xs"
-          title="移除"
-        >
-          ✕
-        </button>
+      {editing ? (
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <input
+            type="text"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            maxLength={10}
+            autoFocus
+            className="flex-1 min-w-0 px-2 py-0.5 rounded border border-indigo-200 text-sm bg-white"
+          />
+          <button
+            onClick={saveRename}
+            disabled={saving}
+            className="px-2 py-0.5 rounded text-xs bg-indigo-600 text-white disabled:opacity-50"
+          >保存</button>
+          <button
+            onClick={() => { setEditing(false); setNameInput(member.nickname || ""); }}
+            className="px-1 py-0.5 text-xs text-gray-500"
+          >取消</button>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="text-sm font-medium text-gray-700 truncate">
+              {member.nickname || "未命名"}
+            </span>
+            <button
+              onClick={() => { setNameInput(member.nickname || ""); setEditing(true); }}
+              className="text-indigo-300 hover:text-indigo-500 text-xs flex-shrink-0"
+              title="改名"
+            >✎</button>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${member.role === "parent" ? "bg-indigo-100 text-indigo-600" : "bg-green-100 text-green-600"}`}>
+              {ROLE_LABELS[member.role]}
+            </span>
+            {member.is_primary && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600">主</span>
+            )}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${hasAccount ? "bg-blue-50 text-blue-500" : "bg-gray-100 text-gray-400"}`}>
+              {hasAccount ? "已登录" : "离线"}
+            </span>
+            {isSelf && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">我</span>
+            )}
+          </div>
+          {!isSelf && (
+            <button
+              onClick={() => onRemove(member.id)}
+              disabled={loading === member.id}
+              className="text-gray-300 hover:text-red-500 text-xs flex-shrink-0"
+              title="移除"
+            >
+              ✕
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -865,7 +925,7 @@ function ChildRow({
   classChips: { linkId: string; className: string }[];
   onManageClass: () => void;
 }) {
-  const isSelf = member.user_id === currentUserId;
+  const isSelf = member.id === currentUserId;
   const hasAccount = member.user_id !== null;
   return (
     <div className="bg-gray-50 rounded-lg px-3 py-2">
