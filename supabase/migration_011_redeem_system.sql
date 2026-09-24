@@ -4,6 +4,33 @@
 -- 孩子端"申请兑换"流程留待后续；本期为家长/老师直接结算
 
 -- ------------------------------------------------------------
+-- 0. 清理旧版兑奖表
+--    最初 schema 设计过 reward_items/redemptions（无 scope 列，功能未上线），
+--    会导致下方 create table if not exists 跳过、后续引用 scope 报错 42703。
+--    新旧结构差异大（redemptions 用 child_member_id 取代 account_id 等），直接重建。
+--    安全策略：两表为空才删；若有历史数据则报错中止，需人工确认。
+-- ------------------------------------------------------------
+do $$
+declare
+  v_cnt bigint;
+begin
+  if to_regclass('public.redemptions') is not null then
+    select count(*) into v_cnt from public.redemptions;
+    if v_cnt > 0 then
+      raise exception 'redemptions 已有 % 条旧数据，中止迁移，请先人工确认处理', v_cnt;
+    end if;
+    drop table public.redemptions;
+  end if;
+  if to_regclass('public.reward_items') is not null then
+    select count(*) into v_cnt from public.reward_items;
+    if v_cnt > 0 then
+      raise exception 'reward_items 已有 % 条旧数据，中止迁移，请先人工确认处理', v_cnt;
+    end if;
+    drop table public.reward_items;
+  end if;
+end $$;
+
+-- ------------------------------------------------------------
 -- 1. 奖池物品
 -- ------------------------------------------------------------
 create table if not exists public.reward_items (
