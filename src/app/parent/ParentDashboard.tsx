@@ -46,10 +46,12 @@ export default function ParentDashboard({
   const router = useRouter();
   const supabase = createClient();
 
-  // 孩子多选（可一起加分）；月历/日历显示第一个选中的孩子
+  // 孩子选中；月历/日历显示第一个选中的孩子
   const [selectedChildIds, setSelectedChildIds] = useState<string[]>(
     kids[0]?.id ? [kids[0].id] : []
   );
+  // 多选模式开关（默认关 = 点孩子就是切换单人）
+  const [multiSelect, setMultiSelect] = useState(false);
   const [showMemberManage, setShowMemberManage] = useState(false);
   const [showTemplateEdit, setShowTemplateEdit] = useState(false);
   const [tasks, setTasks] = useState(initialTasks);
@@ -62,10 +64,15 @@ export default function ParentDashboard({
   const displayedChildId = selectedChildIds[0] ?? kids[0]?.id ?? null;
   const activeChild = kids.find((c) => c.id === displayedChildId);
 
-  const toggleChild = (id: string) => {
-    setSelectedChildIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+  // 点击孩子 chips：单选模式 → 切换单人；多选模式 → 切换选中
+  const handleChildClick = (id: string) => {
+    if (multiSelect) {
+      setSelectedChildIds((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      );
+    } else {
+      setSelectedChildIds([id]);
+    }
   };
 
   const handleConfirmTask = async (task: Task) => {
@@ -219,39 +226,15 @@ export default function ParentDashboard({
               txns={childTxns}
               onAdd={handleDimQuickAdd}
               topSlot={
-                <div className="px-1 mb-1">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] text-gray-500 font-medium">
-                      👧👦 选择孩子
-                      {selectedChildIds.length > 1 && (
-                        <span className="ml-1 text-indigo-500">
-                          已选 {selectedChildIds.length} 人一起加分
-                        </span>
-                      )}
-                    </span>
-                    <div className="flex items-center gap-1.5 text-[10px]">
-                      <button
-                        onClick={() => setSelectedChildIds(kids.map((k) => k.id))}
-                        className="text-indigo-500 hover:text-indigo-600"
-                      >
-                        全选
-                      </button>
-                      <span className="text-gray-200">|</span>
-                      <button
-                        onClick={() => setSelectedChildIds([])}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        清空
-                      </button>
-                    </div>
-                  </div>
+                <div className="px-1 mb-1 flex items-center justify-between flex-wrap gap-1.5">
+                  {/* 孩子 chips */}
                   <div className="flex gap-1.5 flex-wrap">
                     {kids.map((k) => {
                       const on = selectedChildIds.includes(k.id);
                       return (
                         <button
                           key={k.id}
-                          onClick={() => toggleChild(k.id)}
+                          onClick={() => handleChildClick(k.id)}
                           className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition whitespace-nowrap ${
                             on
                               ? "bg-indigo-600 text-white shadow-sm"
@@ -268,6 +251,18 @@ export default function ParentDashboard({
                       );
                     })}
                   </div>
+                  {/* 多选开关 */}
+                  <button
+                    onClick={() => { setMultiSelect((v) => !v); if (multiSelect) setSelectedChildIds([selectedChildIds[0]]); }}
+                    className={`flex-shrink-0 text-[11px] px-2 py-1 rounded-lg transition ${
+                      multiSelect
+                        ? "bg-indigo-50 text-indigo-600 border border-indigo-200 font-medium"
+                        : "bg-gray-50 text-gray-400 border border-gray-200 hover:text-indigo-500"
+                    }`}
+                    title="开启后可多选孩子一起加分"
+                  >
+                    {multiSelect ? `多选 ${selectedChildIds.length}人` : "多选"}
+                  </button>
                 </div>
               }
             />
