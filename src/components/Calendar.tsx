@@ -115,59 +115,69 @@ export default function Calendar({ child, txns, tasks, onOpenDay }: CalendarProp
   const today = new Date();
 
   // =================== 视图切换 ===================
+  // 月份导航（手机端单独一行居中，桌面端在分数与切换器之间）
+  const monthNav = (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => {
+          if (viewMode === "year") setCursor(new Date(cursor.getFullYear() - 1, 0, 1));
+          else if (viewMode === "month") setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1));
+          else if (viewMode === "week") setCursor(new Date(cursor.getTime() - 7 * 24 * 3600 * 1000));
+          else /* day */ setCursor(new Date(cursor.getTime() - 24 * 3600 * 1000));
+        }}
+        className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center hover:bg-gray-50"
+      >‹</button>
+      <span className="text-sm font-semibold text-gray-700 w-28 text-center">
+        {viewMode === "year" ? `${cursor.getFullYear()}年`
+         : viewMode === "month" ? `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`
+         : viewMode === "week" ? formatWeekLabel(cursor)
+         : formatDayLabel(cursor)}
+      </span>
+      <button
+        onClick={() => {
+          if (viewMode === "year") setCursor(new Date(cursor.getFullYear() + 1, 0, 1));
+          else if (viewMode === "month") setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
+          else if (viewMode === "week") setCursor(new Date(cursor.getTime() + 7 * 24 * 3600 * 1000));
+          else /* day */ setCursor(new Date(cursor.getTime() + 24 * 3600 * 1000));
+        }}
+        className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center hover:bg-gray-50"
+      >›</button>
+    </div>
+  );
+
   const viewHeader = (
-    <div className="flex items-center justify-between mb-3">
-      {/* 左：累计分数 */}
-      <div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-2xl">🌸</span>
-          <span className="text-3xl font-bold text-indigo-600 tabular-nums">{total}</span>
+    <div className="mb-3">
+      {/* 第一行：累计分数（左） + 视图切换（右）；桌面端中间还有月份导航 */}
+      <div className="flex items-center justify-between gap-2">
+        {/* 左：累计分数 */}
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-2xl">🌸</span>
+            <span className="text-3xl font-bold text-indigo-600 tabular-nums">{total}</span>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            {child.nickname} · 累计 {child.account?.lifetime_points ?? 0}
+          </p>
         </div>
-        <p className="text-[10px] text-gray-400 mt-0.5">
-          {child.nickname} · 累计 {child.account?.lifetime_points ?? 0}
-        </p>
-      </div>
 
-      {/* 中：上/下箭头 */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => {
-            if (viewMode === "year") setCursor(new Date(cursor.getFullYear() - 1, 0, 1));
-            else if (viewMode === "month") setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1));
-            else if (viewMode === "week") setCursor(new Date(cursor.getTime() - 7 * 24 * 3600 * 1000));
-            else /* day */ setCursor(new Date(cursor.getTime() - 24 * 3600 * 1000));
-          }}
-          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center hover:bg-gray-50"
-        >‹</button>
-        <span className="text-sm font-semibold text-gray-700 w-28 text-center">
-          {viewMode === "year" ? `${cursor.getFullYear()}年`
-           : viewMode === "month" ? `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`
-           : viewMode === "week" ? formatWeekLabel(cursor)
-           : formatDayLabel(cursor)}
-        </span>
-        <button
-          onClick={() => {
-            if (viewMode === "year") setCursor(new Date(cursor.getFullYear() + 1, 0, 1));
-            else if (viewMode === "month") setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
-            else if (viewMode === "week") setCursor(new Date(cursor.getTime() + 7 * 24 * 3600 * 1000));
-            else /* day */ setCursor(new Date(cursor.getTime() + 24 * 3600 * 1000));
-          }}
-          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center hover:bg-gray-50"
-        >›</button>
-      </div>
+        {/* 中：上/下箭头（仅桌面端显示在这行） */}
+        <div className="hidden sm:block">{monthNav}</div>
 
-      {/* 右：视图切换 */}
-      <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 text-[11px]">
-        {(["year", "month", "week", "day"] as ViewMode[]).map((vm) => (
-          <button
-            key={vm}
-            onClick={() => setViewMode(vm)}
-            className={`px-2 py-1 rounded transition ${viewMode === vm ? "bg-white text-indigo-600 shadow" : "text-gray-400"}`}
-          >
-            {vm === "year" ? "年" : vm === "month" ? "月" : vm === "week" ? "周" : "日"}
-          </button>
-        ))}
+        {/* 右：视图切换 */}
+        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 text-[11px] flex-shrink-0">
+          {(["year", "month", "week", "day"] as ViewMode[]).map((vm) => (
+            <button
+              key={vm}
+              onClick={() => setViewMode(vm)}
+              className={`px-2 py-1 rounded transition ${viewMode === vm ? "bg-white text-indigo-600 shadow" : "text-gray-400"}`}
+            >
+              {vm === "year" ? "年" : vm === "month" ? "月" : vm === "week" ? "周" : "日"}
+            </button>
+          ))}
+        </div>
       </div>
+      {/* 手机端：月份导航单独一行居中，避免挤压错位 */}
+      <div className="sm:hidden mt-2 flex justify-center">{monthNav}</div>
     </div>
   );
 
