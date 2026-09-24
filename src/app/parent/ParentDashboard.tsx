@@ -14,6 +14,7 @@ import type {
 import { DIMENSION_LABELS } from "@/types";
 import Calendar from "@/components/Calendar";
 import DimensionQuickAdd from "@/components/DimensionQuickAdd";
+import RewardManageModal from "@/components/RewardManageModal";
 import { isTaskExpired, STATUS_LABELS } from "./TasksTab";
 
 interface Props {
@@ -54,6 +55,7 @@ export default function ParentDashboard({
   const [multiSelect, setMultiSelect] = useState(false);
   const [showMemberManage, setShowMemberManage] = useState(false);
   const [showTemplateEdit, setShowTemplateEdit] = useState(false);
+  const [showRedeem, setShowRedeem] = useState(false);
   const [tasks, setTasks] = useState(initialTasks);
   const [txns, setTxns] = useState(initialTxns);
   const [dayDetail, setDayDetail] = useState<string | null>(null);
@@ -282,6 +284,17 @@ export default function ParentDashboard({
               </span>
               <span className="text-xs text-gray-400">布置 · 确认 ›</span>
             </button>
+
+            {/* 兑换管理入口（家庭奖池，家长结算扣家庭分） */}
+            <button
+              onClick={() => setShowRedeem(true)}
+              className="w-full bg-white rounded-2xl border border-gray-100 p-3 flex items-center justify-between hover:bg-pink-50 hover:border-pink-200 transition"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <span>🎁</span> 兑换管理 · 家庭奖池
+              </span>
+              <span className="text-xs text-gray-400">家长结算扣家庭分 ›</span>
+            </button>
           </>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 text-center py-12">
@@ -326,6 +339,18 @@ export default function ParentDashboard({
           templates={templates}
           onClose={() => setShowTemplateEdit(false)}
           onSaved={() => router.refresh()}
+        />
+      )}
+
+      {/* 兑换管理弹窗（家庭奖池） */}
+      {showRedeem && (
+        <RewardManageModal
+          scope="family"
+          familyId={familyId}
+          currentUserId={currentUserId}
+          childrenList={kids}
+          onClose={() => setShowRedeem(false)}
+          onDone={() => router.refresh()}
         />
       )}
     </main>
@@ -1197,6 +1222,11 @@ function DayDetailModal({
   }, [tasks, dayKey, child.id]);
 
   const net = dayTxns.reduce((s, t) => s + t.points, 0);
+  // 按来源分组：家庭分（缺省 family，兼容旧数据）/ 学校分
+  const famTxns = dayTxns.filter((t) => (t.scope ?? "family") === "family");
+  const schTxns = dayTxns.filter((t) => t.scope === "school");
+  const famNet = famTxns.reduce((s, t) => s + t.points, 0);
+  const schNet = schTxns.reduce((s, t) => s + t.points, 0);
   const dateLabel = `${parseInt(dayKey.slice(5, 7), 10)}月${parseInt(dayKey.slice(8, 10), 10)}日`;
 
   const startEdit = (t: RewardTransaction) => {
@@ -1244,6 +1274,7 @@ function DayDetailModal({
       reason: tpl.item_name,
       dimension: tpl.dimension,
       source: "manual",
+      scope: "family",
       created_by: currentUserId,
       created_at: `${dayKey}T12:00:00+08:00`,
     });
@@ -1254,6 +1285,52 @@ function DayDetailModal({
     setShowAdd(false);
     router.refresh();
   };
+
+  const renderTxnRow = (t: RewardTransaction) => (
+    <div key={t.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
+      {editingId === t.id ? (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={editReason}
+            onChange={(e) => setEditReason(e.target.value)}
+            className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
+            placeholder="原因"
+          />
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              value={editPoints}
+              onChange={(e) => setEditPoints(parseInt(e.target.value, 10) || 0)}
+              className="w-24 px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
+            />
+            <span className="text-xs text-gray-400">正=加分 负=减分</span>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => saveEdit(t.id)} className="flex-1 py-1.5 rounded-lg bg-indigo-600 text-white text-sm">保存</button>
+            <button onClick={() => setEditingId(null)} className="flex-1 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-sm">取消</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.points > 0 ? "bg-green-500" : "bg-red-500"}`} />
+            <span className="text-sm text-gray-700 truncate">{t.reason}</span>
+            {t.dimension && (
+              <span className="text-xs text-gray-400 flex-shrink-0">[{DIMENSION_LABELS[t.dimension]}]</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+            <span className={`font-mono font-semibold text-sm ${t.points > 0 ? "text-green-600" : "text-red-500"}`}>
+              {t.points > 0 ? "+" : ""}{t.points}
+            </span>
+            <button onClick={() => startEdit(t)} className="text-gray-300 hover:text-indigo-500 px-1.5 text-sm">✎</button>
+            <button onClick={() => removeTxn(t.id)} className="text-gray-300 hover:text-red-500 px-1.5 text-sm">✕</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -1274,6 +1351,13 @@ function DayDetailModal({
               <span className={`ml-1 font-bold ${net > 0 ? "text-green-600" : net < 0 ? "text-red-500" : "text-gray-400"}`}>
                 {net > 0 ? "+" : ""}{net}
               </span>
+              {schTxns.length > 0 && (
+                <span className="ml-2">
+                  <span className="text-gray-500">🏠{famNet > 0 ? "+" : ""}{famNet}</span>
+                  <span className="text-gray-300"> · </span>
+                  <span className="text-gray-500">🏫{schNet > 0 ? "+" : ""}{schNet}</span>
+                </span>
+              )}
             </p>
           </div>
           <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-xl px-1">
@@ -1307,51 +1391,14 @@ function DayDetailModal({
               <p className="text-gray-400 text-sm text-center py-6">这天还没有记录</p>
             )}
             <div className="space-y-2 mb-4">
-              {dayTxns.map((t) => (
-                <div key={t.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
-                  {editingId === t.id ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={editReason}
-                        onChange={(e) => setEditReason(e.target.value)}
-                        className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
-                        placeholder="原因"
-                      />
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={editPoints}
-                          onChange={(e) => setEditPoints(parseInt(e.target.value, 10) || 0)}
-                          className="w-24 px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
-                        />
-                        <span className="text-xs text-gray-400">正=加分 负=减分</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => saveEdit(t.id)} className="flex-1 py-1.5 rounded-lg bg-indigo-600 text-white text-sm">保存</button>
-                        <button onClick={() => setEditingId(null)} className="flex-1 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-sm">取消</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.points > 0 ? "bg-green-500" : "bg-red-500"}`} />
-                        <span className="text-sm text-gray-700 truncate">{t.reason}</span>
-                        {t.dimension && (
-                          <span className="text-xs text-gray-400 flex-shrink-0">[{DIMENSION_LABELS[t.dimension]}]</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                        <span className={`font-mono font-semibold text-sm ${t.points > 0 ? "text-green-600" : "text-red-500"}`}>
-                          {t.points > 0 ? "+" : ""}{t.points}
-                        </span>
-                        <button onClick={() => startEdit(t)} className="text-gray-300 hover:text-indigo-500 px-1.5 text-sm">✎</button>
-                        <button onClick={() => removeTxn(t.id)} className="text-gray-300 hover:text-red-500 px-1.5 text-sm">✕</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+              {famTxns.length > 0 && schTxns.length > 0 && (
+                <div className="text-[10px] text-gray-400 font-medium pt-0.5">🏠 家庭</div>
+              )}
+              {famTxns.map(renderTxnRow)}
+              {schTxns.length > 0 && (
+                <div className="text-[10px] text-gray-400 font-medium pt-2">🏫 学校（老师加的）</div>
+              )}
+              {schTxns.map(renderTxnRow)}
             </div>
 
             {showAdd ? (
@@ -1407,6 +1454,11 @@ function DayDetailModal({
                           {t.mode === "challenge" && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">
                               挑战
+                            </span>
+                          )}
+                          {t.scope === "school" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-500">
+                              🏫 学校
                             </span>
                           )}
                           <span className="text-[10px] text-indigo-500">

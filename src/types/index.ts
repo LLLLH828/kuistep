@@ -43,6 +43,7 @@ export interface RewardTransaction {
   custom_dimension_name?: string;
   source?: string;
   source_id?: string;
+  scope?: "family" | "school"; // 家庭分/学校分（migration_006，缺省 family）
   created_by?: string;
   created_at: string;
 }
@@ -62,26 +63,32 @@ export interface RewardTemplate {
 
 export interface RewardItem {
   id: string;
-  family_id: string;
-  child_member_id?: string;
+  scope: "family" | "school"; // 家庭奖池/学校奖池
+  family_id?: string;         // scope=family 时必填
+  class_id?: string;          // scope=school 可选（班级共享奖池，MVP 先按老师个人）
+  created_by: string;
   name: string;
   description?: string;
   points_required: number;
-  category: 'material' | 'non-material';
+  category: "material" | "non-material";
   image_url?: string;
   stock?: number;
   is_active: boolean;
+  created_at: string;
 }
 
 export interface Redemption {
   id: string;
   item_id: string;
-  account_id: string;
+  child_member_id: string;
+  scope: "family" | "school"; // 家长结算扣家庭分，老师结算扣学校分
   points_spent: number;
-  status: 'pending' | 'fulfilled' | 'cancelled';
+  status: "pending" | "fulfilled" | "cancelled";
+  note?: string;
+  created_by: string;         // 结算人
+  created_at: string;
   fulfilled_by?: string;
   fulfilled_at?: string;
-  created_at: string;
 }
 
 export interface Task {
@@ -98,6 +105,7 @@ export interface Task {
   status: TaskStatus;
   ai_generated: boolean;
   source_text?: string;
+  scope?: "family" | "school"; // 家庭任务/学校任务（migration_006，缺省 family）
   created_by?: string;
   created_at: string;
   updated_at: string;

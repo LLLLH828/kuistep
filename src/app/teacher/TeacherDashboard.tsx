@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Calendar from "@/components/Calendar";
 import DimensionQuickAdd from "@/components/DimensionQuickAdd";
+import RewardManageModal from "@/components/RewardManageModal";
 import CreateTaskModal from "@/app/parent/CreateTaskModal";
 import type {
   ClassRoom,
@@ -46,6 +47,7 @@ export default function TeacherDashboard({
   const [activeChildId, setActiveChildId] = useState<string | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showClassModal, setShowClassModal] = useState(false);
+  const [showRedeem, setShowRedeem] = useState(false);
   const [tasks, setTasks] = useState(initialTasks);
   const [txns, setTxns] = useState(initialTxns);
   const [copied, setCopied] = useState(false);
@@ -277,6 +279,17 @@ export default function TeacherDashboard({
                   onAdd={handleDimQuickAdd}
                 />
 
+                {/* 兑换管理入口（学校奖池，老师结算扣学校分；无班级时随面板一起隐藏） */}
+                <button
+                  onClick={() => setShowRedeem(true)}
+                  className="w-full bg-white rounded-2xl border border-gray-100 p-3 flex items-center justify-between hover:bg-pink-50 hover:border-pink-200 transition"
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                    <span>🎁</span> 兑换管理 · 学校奖池
+                  </span>
+                  <span className="text-xs text-gray-400">老师结算扣学校分 ›</span>
+                </button>
+
                 {/* 快速布置任务 */}
                 <div className="bg-white rounded-2xl border border-gray-100 p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -392,6 +405,17 @@ export default function TeacherDashboard({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 兑换管理弹窗（学校奖池） */}
+      {showRedeem && activeClass && (
+        <RewardManageModal
+          scope="school"
+          currentUserId={currentUserId}
+          childrenList={students}
+          onClose={() => setShowRedeem(false)}
+          onDone={() => router.refresh()}
+        />
       )}
 
       {/* 创建任务弹窗 */}

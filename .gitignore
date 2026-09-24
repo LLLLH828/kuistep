@@ -36,3 +36,5 @@ next-env.d.ts
 *.tsbuildinfo
 next.config.js.timestamp-*
 next.config.js.input.txt
+
+.wrangler-logs/

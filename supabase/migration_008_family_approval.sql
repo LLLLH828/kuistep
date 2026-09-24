@@ -23,7 +23,8 @@ create index if not exists idx_fjr_user on public.family_join_requests(requester
 alter table public.family_join_requests enable row level security;
 
 -- 家长能看自己家庭的请求
-create or replace policy "read own family requests"
+drop policy if exists "read own family requests" on public.family_join_requests;
+create policy "read own family requests"
   on public.family_join_requests for select
   using (
     family_id in (
@@ -33,7 +34,8 @@ create or replace policy "read own family requests"
   );
 
 -- 用户能看自己的请求
-create or replace policy "read own requests"
+drop policy if exists "read own requests" on public.family_join_requests;
+create policy "read own requests"
   on public.family_join_requests for select
   using (requester_user_id = auth.uid());
 
